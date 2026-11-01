@@ -1,0 +1,134 @@
+import 'dart:async';
+import 'dart:io';
+import 'dart:isolate';
+import 'package:archive/archive_io.dart';
+import 'package:crypto/crypto.dart';
+import 'package:path/path.dart' as p;
+import '../../core/models.dart';
+
+class ScanUpdate {
+  const ScanUpdate(this.files,this.total,this.location,this.errors,{this.done=false});
+  final int files,total,errors;
+  final String location;
+  final bool done;
+}
+
+String safeChild(String root,String name) {
+  if(name.trim().isEmpty || name == '.' || name == '..' || name.contains(RegExp(r'[\\/:\x00]')) || name.endsWith('.') || name.endsWith(' ')) throw ArgumentError('Enter a valid single file name.');
+  final result = p.normalize(p.join(root,name));
+  if(!p.isWithin(root,result)) throw ArgumentError('Destination is outside selected folder');
+  return result;
+}
+
+String archiveDestination(String root,String name) {
+  final normalized = name.replaceAll('\\','/');
+  if(normalized.startsWith('/') || normalized.contains(':') || normalized.split('/').contains('..') || normalized.contains('\x00')) throw const FormatException('Unsafe archive path');
+  final target = p.normalize(p.join(root,normalized));
+  if(!p.isWithin(root,target)) throw const FormatException('Archive path escapes destination');
+  return target;
+}
+
+class FileService {
+  final List<IndexedFile> index = [];
+  // Stream directory entries, do not follow links, and cap retained index size.
+  Stream<ScanUpdate> scan(String root,Cancellation cancel,{List<String> exclusions=const ['.git','node_modules'], int maxFiles=100000}) async* {
+    index.clear(); int total=0, errors=0; int last=0;
+    final folders = <Directory>[Directory(root)];
+    while(folders.isNotEmpty) {
+      cancel.check(); final directory=folders.removeLast();
+      try {
+        await for(final entity in directory.list(followLinks:false)) {
+          cancel.check(); if(exclusions.contains(p.basename(entity.path))) continue;
+          if(entity is Directory) { if(folders.length < 10000) { folders.add(entity); } else { errors++; } }
+          if(entity is File) {
+            try { final stat=await entity.stat(); index.add(IndexedFile(entity.path,stat.size,stat.modified,classify(entity.path))); total+=stat.size; }
+            on FileSystemException { errors++; }
+            if(index.length >= maxFiles) { yield ScanUpdate(index.length,total,entity.path,errors+1,done:true); return; }
+          }
+          if(index.length-last >= 100) { last=index.length; yield ScanUpdate(index.length,total,entity.path,errors); await Future<void>.delayed(Duration.zero); }
+        }
+      } on FileSystemException { errors++; }
+    }
+    yield ScanUpdate(index.length,total,root,errors,done:true);
+  }
+
+  Future<List<List<IndexedFile>>> duplicates(Cancellation cancel,void Function(int,int) progress) async {
+    final sizes = <int,List<IndexedFile>>{};
+    for(final file in index) { if(file.size>0) (sizes[file.size]??=[]).add(file); }
+    final candidates=sizes.values.where((g)=>g.length>1).expand((g)=>g).toList();
+    final hashes=<String,List<IndexedFile>>{}; int done=0;
+    for(final file in candidates) {
+      cancel.check();
+      try {
+        final before=await File(file.path).stat();
+        // Incremental hashing with backpressure, outside the UI isolate.
+        final hash=await Isolate.run(()=>_hash(file.path));
+        final after=await File(file.path).stat();
+        cancel.check();
+        if(before.size==file.size && after.size==before.size && after.modified==before.modified) (hashes['${file.size}:$hash']??=[]).add(file);
+      } on FileSystemException { /* File changed or became inaccessible. */ }
+      progress(++done,candidates.length);
+    }
+    return hashes.values.where((g)=>g.length>1).toList();
+  }
+  static Future<String> _hash(String path) async => (await sha256.bind(File(path).openRead()).first).toString();
+
+  Future<void> _noLink(String path) async {
+    var current=p.absolute(path);
+    while(true) {
+      if(await FileSystemEntity.type(current,followLinks:false)==FileSystemEntityType.link) throw FileSystemException('Symbolic links are not followed',current);
+      final parent=p.dirname(current); if(parent==current) break; current=parent;
+    }
+  }
+  Future<void> copy(String source,String destination,Cancellation cancel,{bool move=false}) async {
+    await _noLink(source); await _noLink(p.dirname(destination));
+    if(await FileSystemEntity.type(destination,followLinks:false)!=FileSystemEntityType.notFound) throw const FileSystemException('Destination exists; overwriting is disabled');
+    if(p.equals(source,destination) || p.isWithin(source,destination)) throw ArgumentError('Cannot copy into the source');
+    if(await FileSystemEntity.type(source,followLinks:false)!=FileSystemEntityType.file) throw const FileSystemException('Select a regular file');
+    final temporary='$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
+    final output=File(temporary).openWrite();
+    try {
+      await for(final chunk in File(source).openRead()) { cancel.check(); output.add(chunk); await output.flush(); }
+      await output.close(); cancel.check();
+      if(await FileSystemEntity.type(destination,followLinks:false)!=FileSystemEntityType.notFound) throw const FileSystemException('Destination appeared during copy');
+      await File(temporary).rename(destination);
+      if(move) await File(source).delete();
+    } catch(_) { await output.close(); if(await File(temporary).exists()) await File(temporary).delete(); rethrow; }
+  }
+  Future<void> rename(String source,String name) async {
+    await _noLink(source); final destination=safeChild(p.dirname(source),name);
+    if(await FileSystemEntity.type(destination,followLinks:false)!=FileSystemEntityType.notFound) throw const FileSystemException('Destination already exists');
+    if(await FileSystemEntity.isDirectory(source)) { await Directory(source).rename(destination); } else { await File(source).rename(destination); }
+  }
+  Future<void> deleteFile(String path) async { await _noLink(path); await File(path).delete(); }
+
+  Future<List<String>> inspectZip(String path) => Isolate.run(() {
+    final input=InputFileStream(path);
+    try { return ZipDecoder().decodeStream(input).files.map((f)=>'${f.name} (${bytes(f.size)})').toList(); }
+    finally { input.closeSync(); }
+  });
+  Future<void> createZip(List<String> files,String destination,Cancellation cancel) async {
+    if(await File(destination).exists()) throw const FileSystemException('Destination already exists');
+    final names=<String>{}; for(final file in files) { await _noLink(file); if(!names.add(p.basename(file))) throw ArgumentError('Selected files have conflicting names'); }
+    final encoder=ZipFileEncoder(); final temporary='$destination.az-part';
+    try { encoder.create(temporary); for(final file in files) { cancel.check(); await encoder.addFile(File(file),p.basename(file)); } await encoder.close(); cancel.check(); await File(temporary).rename(destination); }
+    catch(_) { try { await encoder.close(); } catch(_) {} if(await File(temporary).exists()) await File(temporary).delete(); rethrow; }
+  }
+  Future<void> extractZip(String path,String destination,Cancellation cancel) async {
+    await _noLink(destination);
+    if(await Directory(destination).exists()) throw const FileSystemException('Choose a new extraction folder; overwriting is disabled');
+    final input=InputFileStream(path);
+    try {
+      final archive=ZipDecoder().decodeStream(input); int expanded=0;
+      if(archive.files.length>10000) throw const FormatException('Archive exceeds 10,000 entry limit');
+      for(final file in archive) { cancel.check(); archiveDestination(destination,file.name); if(file.isSymbolicLink) throw const FormatException('Archive symlinks are rejected'); expanded+=file.size; if(expanded>512*1024*1024) throw const FormatException('Archive exceeds 512 MiB expansion limit'); }
+      await Directory(destination).create();
+      for(final file in archive) {
+        cancel.check(); final target=archiveDestination(destination,file.name);
+        if(file.isFile) { await Directory(p.dirname(target)).create(recursive:true); final output=OutputFileStream(target); try { file.writeContent(output); } finally { await output.close(); } }
+        else { await Directory(target).create(recursive:true); }
+        await Future<void>.delayed(Duration.zero);
+      }
+    } finally { await input.close(); }
+  }
+}

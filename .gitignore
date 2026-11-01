@@ -1,0 +1,13 @@
+.dart_tool/
+.flutter-plugins*
+.packages
+build/
+*.iml
+.idea/
+android/local.properties
+android/key.properties
+android/*.jks
+android/.gradle/
+windows/flutter/ephemeral/
+*.az-part*
+dist/

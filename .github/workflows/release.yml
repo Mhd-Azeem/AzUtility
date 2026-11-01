@@ -1,0 +1,86 @@
+name: Tagged release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: write
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        run: |
+          [[ "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || exit 1
+          version=$(sed -n 's/^version: \([^+]*\).*/\1/p' pubspec.yaml)
+          [ "$GITHUB_REF_NAME" = "v$version" ] || exit 1
+          [ "$version" = "1.0.0" ] || { echo 'Update packaging version before tagging'; exit 1; }
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+  build:
+    needs: validate
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        if: runner.os == 'Linux'
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        if: runner.os == 'Linux'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.47.9'
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      - run: flutter analyze
+      - run: flutter test
+      - name: Android signing and build
+        if: runner.os == 'Linux'
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          STORE_PASSWORD: ${{ secrets.ANDROID_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        shell: bash
+        run: |
+          suffix="-test-signed"
+          if [ -n "$KEYSTORE" ]; then
+            printf '%s' "$KEYSTORE" | base64 --decode > android/release.jks
+            printf 'storeFile=release.jks\nstorePassword=%s\nkeyPassword=%s\nkeyAlias=%s\n' "$STORE_PASSWORD" "$KEY_PASSWORD" "$KEY_ALIAS" > android/key.properties
+            suffix=""
+          fi
+          chmod +x android/gradlew
+          flutter build apk --release --target-platform android-arm64
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/AZUtility-v1.0.0-android-arm64${suffix}.apk"
+          cd dist && sha256sum *.apk > SHA256SUMS-android.txt
+      - if: runner.os == 'Windows'
+        run: flutter build windows --release
+      - if: runner.os == 'Windows'
+        run: ./scripts/package_windows.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ runner.os }}
+          path: dist/*
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          body: |
+            AZ Utility 1.0.0. All files include SHA-256 checksum manifests.
+            Android files named test-signed use a debug certificate and are test-installable, not production-signed.
+            Windows executables are unsigned. Extract the complete ZIP before launching AZUtility.exe.
