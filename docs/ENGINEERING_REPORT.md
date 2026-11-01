@@ -6,7 +6,23 @@ Date: 2026-11-02 (Asia/Colombo).
 
 This is a working integrated application implementation, **not yet complete against every item in the full master specification**. The repository was empty; there was no existing functionality, workflow or asset to preserve. Initial GitHub metadata named `main` as the default branch. Work is on `feature/az-utility` in [Mhd-Azeem/AzUtility](https://github.com/Mhd-Azeem/AzUtility).
 
-Native packaging verification is in progress. Artifact paths and exact successful workflow references will be added after builds finish. No production signing or physical Android testing is claimed.
+Both native release-mode builds and packaging succeeded. The verified application/configuration commit is `d11a50549600f784f48fb2f6df9b0989a3c45c82`; [workflow 41357394257](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41357394257) completed successfully for Android and Windows. The repository's current default branch is `feature/az-utility`, which became the default when the first branch was pushed to the empty repository. No production signing or physical Android testing is claimed.
+
+Deliverables:
+
+- `AZUtility-v1.0.0-android-arm64-test-signed.apk` — 23,434,487 bytes; release-mode ARM64 APK signed with an Android Debug certificate.
+- `AZUtility-v1.0.0-windows-x64.zip` — 15,573,891 bytes; unsigned x64 executable with its full runtime distribution.
+- `AZUtility-source.zip` — source, lockfile, native runners, tests, workflows and documentation.
+- `SHA256SUMS.txt` — checksums for the downloaded packages and source archive.
+
+Downloaded APK identity, target SDK, architecture, signature and checksums were verified independently of CI. Windows PE architecture, companion files, checksum and unsigned status were verified locally. The exact delivered Windows application remained running during an eight-second hidden startup check; SQLite and MSVC/Flutter runtime libraries were loaded from its distribution. Interactive hardware and permission behavior is not covered by this startup check.
+
+Package SHA-256 values:
+
+```text
+aab568bad79fa27206c05682500c97012a0ab4b81502242f5614a6087bf2a276  AZUtility-v1.0.0-android-arm64-test-signed.apk
+115d31f10da990535889c5b1b96167704668cd83a1a16b36af3451eebf2d70ba  AZUtility-v1.0.0-windows-x64.zip
+```
 
 ## Architecture and commits
 
@@ -57,7 +73,7 @@ The commits implement the shell and three modules, native runners, local persist
 - Latest local automated suite: **21 passed, 0 failed**.
 - Coverage includes startup/navigation, saved appearance, DNS failure and timeout, offline socket failure, endpoint validation, network calculations, transfer limits, cancellation, classification, real-file hashing/duplicates, file conflicts/rename, malicious ZIP traversal, ZIP round trip, benchmark bounds, SQLite creation/upgrades and report exports.
 - Dashboard layout tests passed at 1360×900 and 390×844. Local rendered previews were visually inspected with real fonts. These are widget-test renders with native capabilities unavailable, not physical-device screenshots.
-- Hosted Linux and Windows analysis/tests have also run; native build/package outcomes are recorded separately when complete.
+- Hosted Linux and Windows each passed static analysis and all 21 automated tests, then built and packaged the application successfully. APK validation confirms only `arm64-v8a`, package `com.az.utility`, version `1.0.0`, minimum SDK 24 and target SDK 36. APK Signature Scheme v2 verification passed; the signer is `CN=Android Debug, O=Android, C=US`.
 - Integration test source is provided, but has not been executed against a physical Android device or a packaged Windows application.
 
 No device performance profiling, sustained battery measurement, physical audio-quality test or Android permission behavior is claimed as verified. The PDF library's built-in font has limited Unicode coverage; JSON preserves original text.
@@ -82,11 +98,11 @@ For local source builds, see the exact commands and prerequisites in the reposit
 
 ## Outstanding implementation and verification
 
-1. Complete native packaging verification and installation smoke tests; production Android signing and optional Windows signing require real keys/certificates. Physical Android 15 testing remains required.
+1. Physical Android 15 testing and interactive packaged Windows testing remain required. Production Android signing and optional Windows signing require real keys/certificates. A production release has not been published.
 2. Android MediaStore integration and provider-native recursive scan, hashing, duplicate analysis, ZIP, copy/move/share are not implemented. SAF currently provides browsing and basic document actions; Dart analysis needs readable filesystem paths.
 3. Recursive folder copy/move, native sharing, recycle/trash integration, drag-and-drop, incremental filesystem watching, folder-size rankings and richer duplicate multi-selection remain unfinished. Regular-file actions work; deletion is explicitly permanent.
 4. Wi-Fi SSID/BSSID permission acquisition and a dedicated Wi-Fi screen are unfinished. Android reports available link data and marks private identifiers permission-required. Windows WLAN-specific metrics and LAN hostname resolution are unfinished.
 5. Live sensor streams, Windows microphone recording, persisted continuous monitoring samples, detailed metric subpages and recorded manual screen/touch outcomes remain unfinished. Unsupported hardware capabilities are stated explicitly.
 6. History comparisons, configurable age-based retention, reset-settings controls, full Unicode PDF fonts and some advanced report visualizations remain unfinished. Current retention is a fixed per-category record cap.
 
-Continuation priority: finish build failures first, verify both packaged applications, then extend Android provider-backed file operations and native file safety/UX before broadening advanced diagnostics. Preserve the existing working service boundaries and safety tests.
+Continuation priority: test permissions and real file operations on Android 15, exercise the packaged Windows interactions, then extend Android provider-backed file operations and native file safety/UX before broadening advanced diagnostics. Preserve the existing working service boundaries and safety tests.
