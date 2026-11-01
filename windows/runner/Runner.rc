@@ -90,12 +90,12 @@ BEGIN
         BLOCK "040904e4"
         BEGIN
             VALUE "CompanyName", "AZ Utility" "\0"
-            VALUE "FileDescription", "AZUtility" "\0"
+            VALUE "FileDescription", "AZ Utility" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "AZUtility" "\0"
             VALUE "LegalCopyright", "Copyright (C) 2026 AZ Utility. All rights reserved." "\0"
             VALUE "OriginalFilename", "AZUtility.exe" "\0"
-            VALUE "ProductName", "AZUtility" "\0"
+            VALUE "ProductName", "AZ Utility" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

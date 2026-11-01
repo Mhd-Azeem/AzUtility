@@ -3,6 +3,7 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <winsock2.h>
+#include <ws2tcpip.h>
 #include <flutter/flutter_engine.h>
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
@@ -35,6 +36,12 @@ inline flutter::EncodableList Snapshot() {
   if(GetSystemTimes(&idle,&kernel,&user)) { uint64_t currentIdle=TimeValue(idle),currentTotal=TimeValue(kernel)+TimeValue(user); if(oldTotal && currentTotal>oldTotal) { double load=1.0-static_cast<double>(currentIdle-oldIdle)/(currentTotal-oldTotal); add("System CPU load",std::to_string(load*100).substr(0,5)+"%",load); } else add("System CPU load","Collecting initial sample",-1,"temporarilyUnavailable"); oldIdle=currentIdle; oldTotal=currentTotal; }
   wchar_t cpu[256]{}; DWORD size=sizeof(cpu);
   if(RegGetValueW(HKEY_LOCAL_MACHINE,L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",L"ProcessorNameString",RRF_RT_REG_SZ,nullptr,cpu,&size)==ERROR_SUCCESS) add("Processor",Utf8(cpu));
+  DWORD mhz=0; size=sizeof(mhz);
+  if(RegGetValueW(HKEY_LOCAL_MACHINE,L"HARDWARE\\DESCRIPTION\\System\\CentralProcessor\\0",L"~MHz",RRF_RT_REG_DWORD,nullptr,&mhz,&size)==ERROR_SUCCESS) add("Reported processor clock",std::to_string(mhz)+" MHz (registry nominal value)");
+  for(const auto* field : {L"SystemManufacturer",L"SystemProductName"}) {
+    wchar_t value[256]{}; size=sizeof(value);
+    if(RegGetValueW(HKEY_LOCAL_MACHINE,L"HARDWARE\\DESCRIPTION\\System\\BIOS",field,RRF_RT_REG_SZ,nullptr,value,&size)==ERROR_SUCCESS) add(Utf8(field),Utf8(value));
+  }
   SYSTEM_INFO system{}; GetNativeSystemInfo(&system); add("Logical processors",std::to_string(system.dwNumberOfProcessors)); add("Architecture",system.wProcessorArchitecture==PROCESSOR_ARCHITECTURE_AMD64?"x64":"Other");
   SYSTEM_POWER_STATUS power{};
   if(GetSystemPowerStatus(&power) && power.BatteryFlag!=128 && power.BatteryLifePercent!=255) { add("Battery charge",std::to_string(power.BatteryLifePercent)+"%",power.BatteryLifePercent/100.0); add("Power source",power.ACLineStatus==1?"AC":"Battery"); } else add("Battery","No battery information",-1,"unsupported");
@@ -45,12 +52,21 @@ inline flutter::EncodableList Snapshot() {
     ULARGE_INTEGER available{},total{},free{}; if(GetDiskFreeSpaceExW(drive,&available,&total,&free) && total.QuadPart) {
       add(Utf8(drive)+" volume used",std::to_string((total.QuadPart-free.QuadPart)/1073741824)+" / "+std::to_string(total.QuadPart/1073741824)+" GiB",1.0-static_cast<double>(free.QuadPart)/total.QuadPart);
       add(Utf8(drive)+" available",std::to_string(available.QuadPart/1048576)+" MiB");
+      wchar_t filesystem[64]{};
+      if(GetVolumeInformationW(drive,nullptr,0,nullptr,nullptr,nullptr,filesystem,64)) add(Utf8(drive)+" filesystem",Utf8(filesystem));
     }
   }
   ULONG length=16384; std::vector<unsigned char> buffer(length); auto adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
   ULONG code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST,nullptr,adapters,&length);
   if(code==ERROR_BUFFER_OVERFLOW) { buffer.resize(length); adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST,nullptr,adapters,&length); }
-  if(code==NO_ERROR) for(auto adapter=adapters;adapter;adapter=adapter->Next) if(adapter->OperStatus==IfOperStatusUp) add("Network adapter",Utf8(adapter->FriendlyName));
+  if(code==NO_ERROR) for(auto adapter=adapters;adapter;adapter=adapter->Next) if(adapter->OperStatus==IfOperStatusUp) {
+    add("Network adapter",Utf8(adapter->FriendlyName));
+    for(auto unicast=adapter->FirstUnicastAddress;unicast;unicast=unicast->Next) {
+      char address[INET6_ADDRSTRLEN]{}; auto socket=unicast->Address.lpSockaddr;
+      const void* data=socket->sa_family==AF_INET?static_cast<const void*>(&reinterpret_cast<sockaddr_in*>(socket)->sin_addr):socket->sa_family==AF_INET6?static_cast<const void*>(&reinterpret_cast<sockaddr_in6*>(socket)->sin6_addr):nullptr;
+      if(data && InetNtopA(socket->sa_family,const_cast<void*>(data),address,sizeof(address))) add("Local IP",address);
+    }
+  }
   add("Display resolution",std::to_string(GetSystemMetrics(SM_CXSCREEN))+" x "+std::to_string(GetSystemMetrics(SM_CYSCREEN)));
   return rows;
 }

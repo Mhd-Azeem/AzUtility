@@ -52,10 +52,16 @@ class MainActivity : FlutterActivity() {
             if(treeResult != null) { result.error("BUSY","A folder picker is already open",null) }
             else { treeResult=result; startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION), 701) }
           }
-          "listSaf" -> result.success(listSaf(Uri.parse(call.argument<String>("uri")!!)))
+          "listSaf" -> {
+            val uri=Uri.parse(call.argument<String>("uri")!!)
+            Thread {
+              try { val rows=listSaf(uri); handler.post { result.success(rows) } }
+              catch(e:Exception) { handler.post { result.error("STORAGE",e.message,null) } }
+            }.start()
+          }
           "safRename" -> result.success(DocumentsContract.renameDocument(contentResolver,Uri.parse(call.argument<String>("uri")!!),call.argument<String>("name")!!)?.toString())
           "safDelete" -> result.success(DocumentsContract.deleteDocument(contentResolver,Uri.parse(call.argument<String>("uri")!!)))
-          "safCreateFolder" -> result.success(DocumentsContract.createDocument(contentResolver,Uri.parse(call.argument<String>("uri")!!),DocumentsContract.Document.MIME_TYPE_DIR,call.argument<String>("name")!!)?.toString())
+          "safCreateFolder" -> { val uri=Uri.parse(call.argument<String>("uri")!!); val parent=if(DocumentsContract.isDocumentUri(this,uri)) uri else DocumentsContract.buildDocumentUriUsingTree(uri,DocumentsContract.getTreeDocumentId(uri)); result.success(DocumentsContract.createDocument(contentResolver,parent,DocumentsContract.Document.MIME_TYPE_DIR,call.argument<String>("name")!!)?.toString()) }
           "safOpen" -> { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(call.argument<String>("uri")!!),call.argument<String>("mime")).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); result.success("Opened") }
           "sensors" -> { val manager=getSystemService(Context.SENSOR_SERVICE) as SensorManager; result.success(manager.getSensorList(Sensor.TYPE_ALL).map { "${it.name}: ${it.vendor} (${it.stringType})" }.joinToString("\n").ifEmpty { "Unsupported: no sensors reported" }) }
           "speaker" -> { tone?.release(); tone=ToneGenerator(AudioManager.STREAM_MUSIC,50); tone?.startTone(ToneGenerator.TONE_DTMF_5,1000); handler.postDelayed({ tone?.release(); tone=null },1200); result.success("Played a 1-second tone at 50% generator volume. Confirm audibility yourself.") }
@@ -85,7 +91,9 @@ class MainActivity : FlutterActivity() {
     if(temperature!=Int.MIN_VALUE) add("Battery temperature","${temperature/10.0} °C")
     val voltage=battery?.getIntExtra(BatteryManager.EXTRA_VOLTAGE,0) ?: 0
     if(voltage>0) add("Battery voltage","$voltage mV")
-    add("Battery status / source","status ${battery?.getIntExtra(BatteryManager.EXTRA_STATUS,0)}; plugged ${battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)} (Android native codes)")
+    val batteryStatus=when(battery?.getIntExtra(BatteryManager.EXTRA_STATUS,0)) { BatteryManager.BATTERY_STATUS_CHARGING -> "Charging"; BatteryManager.BATTERY_STATUS_DISCHARGING -> "Discharging"; BatteryManager.BATTERY_STATUS_FULL -> "Full"; BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Not charging"; else -> "Unavailable" }
+    val source=when(battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)) { BatteryManager.BATTERY_PLUGGED_AC -> "AC"; BatteryManager.BATTERY_PLUGGED_USB -> "USB"; BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless"; 0 -> "Battery"; else -> "Other" }
+    add("Battery status / source","$batteryStatus / $source")
     val cpu=android.os.Process.getElapsedCpuTime(); val wall=android.os.SystemClock.elapsedRealtime()
     if(wall>lastWall) add("AZ process CPU (one-core basis)","${((cpu-lastCpu)*100.0/(wall-lastWall))}%")
     lastCpu=cpu; lastWall=wall
@@ -116,11 +124,11 @@ class MainActivity : FlutterActivity() {
   }
   override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
     super.onActivityResult(requestCode,resultCode,data)
-    if(requestCode==701) { val uri=data?.data; if(resultCode==Activity.RESULT_OK && uri!=null) { try { contentResolver.takePersistableUriPermission(uri,data.flags and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)); treeResult?.success(uri.toString()) } catch(e:Exception) { treeResult?.error("PERMISSION",e.message,null) } } else treeResult?.success(null); treeResult=null }
+    if(requestCode==701) { val uri=data?.data; if(resultCode==Activity.RESULT_OK && uri!=null) { try { contentResolver.takePersistableUriPermission(uri,(data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)); treeResult?.success(uri.toString()) } catch(e:Exception) { treeResult?.error("PERMISSION",e.message,null) } } else treeResult?.success(null); treeResult=null }
   }
   override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {
     super.onRequestPermissionsResult(requestCode,permissions,grantResults)
-    if(requestCode==702) { if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startMicrophone() else { micResult?.success("Permission required: microphone access was denied"); micResult=null } }
+    if(requestCode==702 && micResult!=null) { if(grantResults.firstOrNull()==PackageManager.PERMISSION_GRANTED) startMicrophone() else { micResult?.success("Permission required: microphone access was denied"); micResult=null } }
   }
   private fun startMicrophone() {
     try {

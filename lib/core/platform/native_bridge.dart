@@ -1,4 +1,5 @@
 import 'package:flutter/services.dart';
+
 import '../models.dart';
 
 class NativeBridge {
@@ -9,9 +10,17 @@ class NativeBridge {
       final result = await channel.invokeListMethod<dynamic>('snapshot');
       return (result ?? []).map((m) => Metric.fromMap(m as Map)).toList();
     } on MissingPluginException {
-      return [const Metric('Native monitoring', 'Adapter unavailable', status: CapabilityStatus.unsupported)];
+      return [
+        const Metric(
+          'Native monitoring',
+          'Adapter unavailable',
+          status: CapabilityStatus.unsupported,
+        ),
+      ];
     }
   }
+
   Future<String?> chooseTree() => channel.invokeMethod<String>('chooseTree');
-  Future<dynamic> invoke(String name, [Map<String, dynamic>? arguments]) => channel.invokeMethod<dynamic>(name, arguments);
+  Future<dynamic> invoke(String name, [Map<String, dynamic>? arguments]) =>
+      channel.invokeMethod<dynamic>(name, arguments);
 }

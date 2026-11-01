@@ -1,6 +1,12 @@
 $ErrorActionPreference = 'Stop'
 $azBundle = Join-Path $PSScriptRoot '../build/windows/x64/runner/Release'
-foreach ($azRequired in @('AZUtility.exe', 'flutter_windows.dll', 'data/icudtl.dat', 'data/flutter_assets', 'data/app.so')) {
+$azVsWhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio/Installer/vswhere.exe'
+if (Test-Path -LiteralPath $azVsWhere) {
+    $azVsRoot = & $azVsWhere -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+    $azCrtFolders = Get-ChildItem -Path (Join-Path $azVsRoot 'VC/Redist/MSVC/*/x64/Microsoft.VC*.CRT') -Directory | Sort-Object FullName -Descending
+    if ($azCrtFolders.Count -gt 0) { Copy-Item -Path (Join-Path $azCrtFolders[0].FullName '*.dll') -Destination $azBundle -Force }
+}
+foreach ($azRequired in @('AZUtility.exe', 'flutter_windows.dll', 'vcruntime140.dll', 'msvcp140.dll', 'data/icudtl.dat', 'data/flutter_assets', 'data/app.so')) {
     if (-not (Test-Path -LiteralPath (Join-Path $azBundle $azRequired))) { throw "Missing runtime component: $azRequired" }
 }
 $azDist = Join-Path $PSScriptRoot '../dist'
