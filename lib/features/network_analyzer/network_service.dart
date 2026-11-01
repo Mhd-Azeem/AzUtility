@@ -49,6 +49,9 @@ class NetworkStats {
 }
 
 class NetworkService {
+  NetworkService({Future<List<InternetAddress>> Function(String)? resolve})
+    : _resolve = resolve ?? InternetAddress.lookup;
+  final Future<List<InternetAddress>> Function(String) _resolve;
   Uri endpoint(String input) {
     final uri = Uri.parse(input);
     if (uri.scheme != 'https' || uri.host.isEmpty || uri.userInfo.isNotEmpty) {
@@ -74,7 +77,7 @@ class NetworkService {
     final timer = Stopwatch();
     try {
       cancel.check();
-      final addresses = await InternetAddress.lookup(uri.host).timeout(timeout);
+      final addresses = await _resolve(uri.host).timeout(timeout);
       cancel.check();
       timer.start();
       socket = await Socket.connect(

@@ -21,6 +21,16 @@ class NativeBridge {
   }
 
   Future<String?> chooseTree() => channel.invokeMethod<String>('chooseTree');
+  Future<void> cancelHardware() async {
+    try {
+      await channel.invokeMethod<void>('cancelHardware');
+    } on MissingPluginException {
+      /* No active native test on this platform. */
+    } on PlatformException {
+      /* Cancellation remains effective in the Dart worker. */
+    }
+  }
+
   Future<dynamic> invoke(String name, [Map<String, dynamic>? arguments]) =>
       channel.invokeMethod<dynamic>(name, arguments);
 }

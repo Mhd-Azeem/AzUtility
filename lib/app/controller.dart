@@ -135,6 +135,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   void cancel() {
     _cancel?.cancel();
+    unawaited(native.cancelHardware());
     status = 'Cancelling…';
     notifyListeners();
   }

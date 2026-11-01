@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 
 import 'package:az_utility/core/database/app_database.dart';
 import 'package:az_utility/core/models.dart';
@@ -14,6 +15,34 @@ import 'package:az_utility/features/device_doctor/device_service.dart';
 import 'package:az_utility/core/platform/native_bridge.dart';
 
 void main() {
+  test(
+    'DNS failure is categorized and produces no invented TCP value',
+    () async {
+      final service = NetworkService(
+        resolve: (_) => Future<List<InternetAddress>>.error(
+          const SocketException('Name resolution failed'),
+        ),
+      );
+      final sample = await service.measure(
+        Uri.parse('https://example.invalid'),
+        Cancellation(),
+      );
+      expect(sample.error, contains('DNS or socket'));
+      expect(sample.tcpMs, isNull);
+      expect(sample.addresses, isEmpty);
+    },
+  );
+  test('DNS timeout is bounded and explicitly recorded', () async {
+    final pending = Completer<List<InternetAddress>>();
+    final service = NetworkService(resolve: (_) => pending.future);
+    final sample = await service.measure(
+      Uri.parse('https://example.invalid'),
+      Cancellation(),
+      timeout: const Duration(milliseconds: 10),
+    );
+    expect(sample.error, 'Timeout');
+    expect(sample.tcpMs, isNull);
+  });
   test('v1 database upgrades preserve settings and history', () async {
     final root = await Directory.systemTemp.createTemp('az-migration-');
     addTearDown(() => root.delete(recursive: true));

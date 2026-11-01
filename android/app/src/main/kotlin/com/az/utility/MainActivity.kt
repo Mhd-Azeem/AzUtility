@@ -36,6 +36,7 @@ class MainActivity : FlutterActivity() {
   private var treeResult: MethodChannel.Result? = null
   private var micResult: MethodChannel.Result? = null
   private var recorder: MediaRecorder? = null
+  private var audioStop: Runnable? = null
   private var player: MediaPlayer? = null
   private var tone: ToneGenerator? = null
   private var recording: File? = null
@@ -65,7 +66,8 @@ class MainActivity : FlutterActivity() {
           "safOpen" -> { startActivity(Intent(Intent.ACTION_VIEW).setDataAndType(Uri.parse(call.argument<String>("uri")!!),call.argument<String>("mime")).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)); result.success("Opened") }
           "sensors" -> { val manager=getSystemService(Context.SENSOR_SERVICE) as SensorManager; result.success(manager.getSensorList(Sensor.TYPE_ALL).map { "${it.name}: ${it.vendor} (${it.stringType})" }.joinToString("\n").ifEmpty { "Unsupported: no sensors reported" }) }
           "speaker" -> { tone?.release(); tone=ToneGenerator(AudioManager.STREAM_MUSIC,50); tone?.startTone(ToneGenerator.TONE_DTMF_5,1000); handler.postDelayed({ tone?.release(); tone=null },1200); result.success("Played a 1-second tone at 50% generator volume. Confirm audibility yourself.") }
-          "vibrate" -> { val vibrator=getSystemService(Context.VIBRATOR_SERVICE) as Vibrator; if(!vibrator.hasVibrator()) result.success("Unsupported: no vibrator") else { vibrator.vibrate(VibrationEffect.createOneShot(300,VibrationEffect.DEFAULT_AMPLITUDE)); result.success("Requested a 300 ms vibration; confirm by touch.") } }
+          "vibrate" -> { val vibrator=getSystemService(Context.VIBRATOR_SERVICE) as Vibrator; if(!vibrator.hasVibrator()) result.success("Unsupported: no vibrator") else { if(Build.VERSION.SDK_INT>=26) vibrator.vibrate(VibrationEffect.createOneShot(300,VibrationEffect.DEFAULT_AMPLITUDE)) else vibrator.vibrate(300); result.success("Requested a 300 ms vibration; confirm by touch.") } }
+          "cancelHardware" -> { cleanupAudio(); tone?.release(); tone=null; micResult?.success("Hardware test cancelled"); micResult=null; result.success(null) }
           "microphone" -> {
             if(micResult!=null) result.error("BUSY","Recording already active",null)
             else { micResult=result; if(checkSelfPermission(Manifest.permission.RECORD_AUDIO)!=PackageManager.PERMISSION_GRANTED) requestPermissions(arrayOf(Manifest.permission.RECORD_AUDIO),702) else startMicrophone() }
@@ -137,13 +139,14 @@ class MainActivity : FlutterActivity() {
     try {
       recording=File(cacheDir,"az-microphone.m4a")
       recorder=(if(Build.VERSION.SDK_INT>=31) MediaRecorder(this) else MediaRecorder()).apply { setAudioSource(MediaRecorder.AudioSource.MIC); setOutputFormat(MediaRecorder.OutputFormat.MPEG_4); setAudioEncoder(MediaRecorder.AudioEncoder.AAC); setOutputFile(recording!!.absolutePath); prepare(); start() }
-      handler.postDelayed({
+      audioStop=Runnable {
         try { recorder?.stop(); recorder?.release(); recorder=null; player=MediaPlayer().apply { setDataSource(recording!!.absolutePath); prepare(); setOnCompletionListener { cleanupAudio(); micResult?.success("Recorded and played back 3 seconds locally. Confirm audio quality yourself."); micResult=null }; start() } }
         catch(e:Exception) { cleanupAudio(); micResult?.error("AUDIO",e.message,null); micResult=null }
-      },3000)
+      }
+      handler.postDelayed(audioStop!!,3000)
     } catch(e:Exception) { cleanupAudio(); micResult?.error("AUDIO",e.message,null); micResult=null }
   }
-  private fun cleanupAudio() { recorder?.release(); recorder=null; player?.release(); player=null; recording?.delete(); recording=null }
+  private fun cleanupAudio() { audioStop?.let { handler.removeCallbacks(it) }; audioStop=null; recorder?.release(); recorder=null; player?.release(); player=null; recording?.delete(); recording=null }
   override fun onPause() { super.onPause(); handler.removeCallbacksAndMessages(null); cleanupAudio(); tone?.release(); tone=null; micResult?.success("Microphone test stopped because app left foreground"); micResult=null }
   override fun onDestroy() { cleanupAudio(); super.onDestroy() }
 }
