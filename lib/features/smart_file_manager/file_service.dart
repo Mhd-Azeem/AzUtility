@@ -424,12 +424,23 @@ class FileService {
         }
       }
       await Directory(destination).create();
+      // Windows TEMP may contain a DOS 8.3 alias (e.g. RUNNER~1). Use the
+      // resolved root consistently for the archive library's containment checks.
+      final canonical = await Directory(destination).resolveSymbolicLinks();
       await extractArchiveToDisk(
         archive,
-        destination,
+        canonical,
         maxSize: 512 * 1024 * 1024,
         throwOnError: true,
       );
+      for (final entry in archive.where((entry) => entry.isFile)) {
+        if (!await File(archiveDestination(canonical, entry.name)).exists()) {
+          throw FileSystemException(
+            'Archive entry was not extracted',
+            entry.name,
+          );
+        }
+      }
     } finally {
       await input.close();
     }

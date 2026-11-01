@@ -32,7 +32,7 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
             Metric('TCP connection latency', ms(stats.mean)),
             Metric('Successive-sample jitter', ms(stats.jitter)),
             Metric(
-              'TCP failure estimate',
+              'Connection failure estimate',
               stats.failurePercent == null
                   ? 'Not measured'
                   : '${stats.failurePercent!.toStringAsFixed(1)}%',
@@ -83,7 +83,7 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
               ),
               LatencyChart(values: samples.map((s) => s.tcpMs).toList()),
               const Text(
-                'Jitter = mean absolute difference of successive successful TCP samples. Failure estimate = failed TCP attempts / total attempts; this is not ICMP packet loss.',
+                'TCP time uses the first resolved address and excludes DNS lookup. Jitter = mean absolute difference of successive successful TCP samples. Failure estimate = DNS/TCP failures / diagnostic attempts; this is not ICMP packet loss.',
               ),
             ],
           ),

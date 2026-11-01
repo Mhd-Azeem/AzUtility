@@ -6,18 +6,40 @@ import 'package:go_router/go_router.dart';
 
 import '../../app/controller.dart';
 import '../../core/widgets/dashboard_widgets.dart';
+import '../../core/models.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final app = ref.watch(controllerProvider);
+    final overview = app.metrics
+        .where(
+          (metric) =>
+              metric.label == 'System CPU load' ||
+              metric.label == 'System RAM used' ||
+              metric.label.contains('volume used') ||
+              metric.label == 'Battery charge',
+        )
+        .take(5)
+        .toList();
+    final last = app.samples.lastOrNull;
+    final connection =
+        app.metrics
+            .where((metric) => metric.label == 'Active network')
+            .firstOrNull
+            ?.value ??
+        (last == null ? 'Not tested' : last.error ?? 'Endpoint responded');
+    final storage = app.files.index.fold<int>(
+      0,
+      (total, file) => total + file.size,
+    );
     return PageBody(
       title: 'Your system. In focus.',
       subtitle:
           '${DateTime.now().toLocal().toString().substring(0, 16)} · ${Platform.operatingSystem} · Private by design',
       children: [
-        MetricGrid(metrics: app.metrics.take(6).toList()),
+        MetricGrid(metrics: [Metric('Connection', connection), ...overview]),
         LayoutBuilder(
           builder: (context, c) => Wrap(
             spacing: 12,
@@ -27,24 +49,24 @@ class HomePage extends ConsumerWidget {
                 (
                   Icons.network_check,
                   'AZ Network Analyzer',
-                  'Measure connection quality, DNS and throughput.',
+                  '$connection\nTCP: ${last?.tcpMs?.toStringAsFixed(1) ?? 'Not measured'}${last?.tcpMs == null ? '' : ' ms'}',
                   '/network',
                 ),
                 (
                   Icons.folder,
                   'AZ Smart File Manager',
-                  'Explore accessible files and reclaim space safely.',
+                  '${app.files.index.length} indexed files · ${bytes(storage)}\nExplore accessible folders safely.',
                   '/files',
                 ),
                 (
                   Icons.monitor_heart,
                   'AZ Device Doctor',
-                  'Inspect hardware and run bounded diagnostics.',
+                  '${Platform.numberOfProcessors} logical processors\nInspect live hardware and run diagnostics.',
                   '/device',
                 ),
               ])
                 SizedBox(
-                  width: c.maxWidth > 1000 ? (c.maxWidth - 24) / 3 : c.maxWidth,
+                  width: c.maxWidth > 820 ? (c.maxWidth - 24) / 3 : c.maxWidth,
                   child: Panel(
                     onTap: () => context.go(item.$4),
                     child: Column(

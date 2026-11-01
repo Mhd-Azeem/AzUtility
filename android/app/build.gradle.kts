@@ -1,11 +1,12 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
-val azSigning = java.util.Properties()
+val azSigning = Properties()
 val azSigningFile = rootProject.file("key.properties")
 if (azSigningFile.exists()) azSigningFile.inputStream().use { azSigning.load(it) }
 

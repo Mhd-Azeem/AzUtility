@@ -168,7 +168,13 @@ class _AppShellState extends ConsumerState<AppShell> {
                   ),
                 ),
                 SizedBox(width: 12),
-                Text('AZ Utility'),
+                Expanded(
+                  child: Text(
+                    'AZ Utility',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
               ],
             ),
             actions: [

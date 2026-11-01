@@ -77,7 +77,11 @@ class NetworkService {
       final addresses = await InternetAddress.lookup(uri.host).timeout(timeout);
       cancel.check();
       timer.start();
-      socket = await Socket.connect(uri.host, uri.port, timeout: timeout);
+      socket = await Socket.connect(
+        addresses.first,
+        uri.port,
+        timeout: timeout,
+      );
       tcp = timer.elapsedMicroseconds / 1000;
       socket.destroy();
       timer.reset();
@@ -133,7 +137,8 @@ class NetworkService {
       throw ArgumentError('Transfer limit must be 1 KiB–64 MiB');
     }
     final client = HttpClient()
-      ..connectionTimeout = const Duration(seconds: 10);
+      ..connectionTimeout = const Duration(seconds: 10)
+      ..autoUncompress = false;
     cancel.onCancel(() => client.close(force: true));
     final timer = Stopwatch()..start();
     int transferred = 0;
@@ -141,6 +146,7 @@ class NetworkService {
       final request = await (upload ? client.postUrl(uri) : client.getUrl(uri))
           .timeout(const Duration(seconds: 10));
       request.followRedirects = false;
+      request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       if (upload) {
         request.contentLength = limit;
         final chunk = List<int>.filled(64 * 1024, 0);

@@ -8,8 +8,64 @@ import 'package:az_utility/features/smart_file_manager/file_service.dart';
 import 'package:drift/native.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:archive/archive_io.dart';
+import 'package:sqlite3/sqlite3.dart' as sql;
+import 'package:az_utility/features/device_doctor/device_service.dart';
+import 'package:az_utility/core/platform/native_bridge.dart';
 
 void main() {
+  test('v1 database upgrades preserve settings and history', () async {
+    final root = await Directory.systemTemp.createTemp('az-migration-');
+    addTearDown(() => root.delete(recursive: true));
+    final path = p.join(root.path, 'old.sqlite');
+    final old = sql.sqlite3.open(path);
+    old.execute(
+      'CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+    );
+    old.execute(
+      'CREATE TABLE records (id INTEGER PRIMARY KEY AUTOINCREMENT, category TEXT NOT NULL, title TEXT NOT NULL, created TEXT NOT NULL, payload TEXT NOT NULL)',
+    );
+    old.execute("INSERT INTO settings VALUES ('light','true')");
+    old.execute('PRAGMA user_version=1');
+    old.close();
+    final db = AppDatabase(NativeDatabase(File(path)));
+    expect((await db.settings())['light'], true);
+    await db.saveIndex([
+      IndexedFile('test.txt', 4, DateTime(2026), 'Documents'),
+    ]);
+    expect((await db.loadIndex()).single.size, 4);
+    await db.close();
+  });
+  test('malicious ZIP cannot escape its new destination', () async {
+    final root = await Directory.systemTemp.createTemp('az-malicious-');
+    addTearDown(() => root.delete(recursive: true));
+    final archive = Archive()
+      ..addFile(ArchiveFile('../escaped.txt', 3, [1, 2, 3]));
+    final path = p.join(root.path, 'bad.zip');
+    await File(path).writeAsBytes(ZipEncoder().encode(archive));
+    await expectLater(
+      FileService().extractZip(path, p.join(root.path, 'out'), Cancellation()),
+      throwsFormatException,
+    );
+    expect(await File(p.join(root.path, 'escaped.txt')).exists(), isFalse);
+  });
+  test(
+    'memory benchmark has explicit conservative bounds and CPU cancels',
+    () async {
+      const service = DeviceService(NativeBridge());
+      final memory = await service.benchmark('Memory', Cancellation()).toList();
+      expect(memory.last['peakChunkMiB'], 8);
+      expect(memory.last['allocatedMiB'], 64);
+      final token = Cancellation();
+      await expectLater(
+        service.benchmark('CPU', token).map((event) {
+          token.cancel();
+          return event;
+        }).toList(),
+        throwsA(isA<Cancelled>()),
+      );
+    },
+  );
   test(
     'network statistics use TCP successes and attempt failure denominator',
     () {
