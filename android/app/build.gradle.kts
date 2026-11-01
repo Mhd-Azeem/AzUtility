@@ -1,4 +1,5 @@
 import java.util.Properties
+import com.android.build.api.dsl.ApplicationExtension
 
 plugins {
     id("com.android.application")
@@ -10,7 +11,7 @@ val azSigning = Properties()
 val azSigningFile = rootProject.file("key.properties")
 if (azSigningFile.exists()) azSigningFile.inputStream().use { azSigning.load(it) }
 
-android {
+extensions.configure<ApplicationExtension> {
     namespace = "com.az.utility"
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
