@@ -20,6 +20,18 @@ void main() {
     expect(()=>service.endpoint('https://user:secret@example.com'),throwsFormatException);
     expect(service.endpoint('https://example.com').host,'example.com');
   });
+  test('offline socket failure is retained as evidence without fake latency',() async {
+    final listener=await ServerSocket.bind(InternetAddress.loopbackIPv4,0);
+    final port=listener.port; await listener.close();
+    final sample=await NetworkService().measure(Uri.parse('https://127.0.0.1:$port'),Cancellation(),timeout:const Duration(milliseconds:100));
+    expect(sample.tcpMs,isNull); expect(sample.error,isNotNull);
+  });
+  test('throughput rejects excessive transfers before accessing network',() async {
+    await expectLater(NetworkService().throughput(Uri.parse('https://example.invalid'),upload:false,limit:65*1024*1024,cancel:Cancellation()).toList(),throwsArgumentError);
+  });
+  test('cancelled network test never produces a successful sample',() async {
+    await expectLater(NetworkService().measure(Uri.parse('https://example.invalid'),Cancellation()..cancel()),throwsA(isA<Cancelled>()));
+  });
   test('file categories are case insensitive',() { expect(classify('PHOTO.JPG'),'Images'); expect(classify('report.xlsx'),'Documents'); expect(classify('unknown.bin'),'Other'); });
   test('private address validation excludes public, loopback and malformed IPs',() {
     for(final ip in ['10.1.2.3','172.16.0.1','192.168.1.2']) { expect(privateV4(ip),isTrue); }

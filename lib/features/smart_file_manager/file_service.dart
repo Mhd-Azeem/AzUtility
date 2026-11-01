@@ -32,6 +32,7 @@ class FileService {
   final List<IndexedFile> index = [];
   // Stream directory entries, do not follow links, and cap retained index size.
   Stream<ScanUpdate> scan(String root,Cancellation cancel,{List<String> exclusions=const ['.git','node_modules'], int maxFiles=100000}) async* {
+    cancel.check(); await _noLink(root);
     index.clear(); int total=0, errors=0; int last=0;
     final folders = <Directory>[Directory(root)];
     while(folders.isNotEmpty) {
@@ -62,7 +63,7 @@ class FileService {
       try {
         final before=await File(file.path).stat();
         // Incremental hashing with backpressure, outside the UI isolate.
-        final hash=await Isolate.run(()=>_hash(file.path));
+        final hash=await _cancellableHash(file.path,cancel);
         final after=await File(file.path).stat();
         cancel.check();
         if(before.size==file.size && after.size==before.size && after.modified==before.modified) (hashes['${file.size}:$hash']??=[]).add(file);
@@ -72,6 +73,24 @@ class FileService {
     return hashes.values.where((g)=>g.length>1).toList();
   }
   static Future<String> _hash(String path) async => (await sha256.bind(File(path).openRead()).first).toString();
+  static Future<void> _hashEntry(List<Object> arguments) async {
+    final destination=arguments[1] as SendPort;
+    try { destination.send({'hash':await _hash(arguments[0] as String)}); }
+    catch(e) { destination.send({'error':e.toString()}); }
+  }
+  static Future<String> _cancellableHash(String path,Cancellation cancel) async {
+    final port=ReceivePort(); final completer=Completer<String>();
+    final isolate=await Isolate.spawn(_hashEntry,<Object>[path,port.sendPort]);
+    final subscription=port.listen((dynamic message) {
+      if(completer.isCompleted) return;
+      final data=message as Map;
+      if(data['error']!=null) { completer.completeError(FileSystemException(data['error'] as String,path)); }
+      else { completer.complete(data['hash'] as String); }
+    });
+    cancel.onCancel(() { isolate.kill(priority:Isolate.immediate); if(!completer.isCompleted) completer.completeError(const Cancelled()); });
+    try { return await completer.future; }
+    finally { await subscription.cancel(); port.close(); isolate.kill(); }
+  }
 
   Future<void> _noLink(String path) async {
     var current=p.absolute(path);
@@ -110,21 +129,49 @@ class FileService {
   Future<void> createZip(List<String> files,String destination,Cancellation cancel) async {
     if(await File(destination).exists()) throw const FileSystemException('Destination already exists');
     final names=<String>{}; for(final file in files) { await _noLink(file); if(!names.add(p.basename(file))) throw ArgumentError('Selected files have conflicting names'); }
-    final encoder=ZipFileEncoder(); final temporary='$destination.az-part';
-    try { encoder.create(temporary); for(final file in files) { cancel.check(); await encoder.addFile(File(file),p.basename(file)); } await encoder.close(); cancel.check(); await File(temporary).rename(destination); }
-    catch(_) { try { await encoder.close(); } catch(_) {} if(await File(temporary).exists()) await File(temporary).delete(); rethrow; }
+    final temporary='$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
+    try { await _archiveJob({'action':'create','files':files,'destination':temporary},cancel); cancel.check(); if(await File(destination).exists()) throw const FileSystemException('Destination already exists'); await File(temporary).rename(destination); }
+    finally { if(await File(temporary).exists()) await File(temporary).delete(); }
   }
   Future<void> extractZip(String path,String destination,Cancellation cancel) async {
     await _noLink(destination);
     if(await Directory(destination).exists()) throw const FileSystemException('Choose a new extraction folder; overwriting is disabled');
+    await _archiveJob({'action':'extract','path':path,'destination':destination},cancel);
+  }
+  static Future<void> _archiveEntry(List<Object> arguments) async {
+    final job=arguments[0] as Map<String,Object>;
+    final port=arguments[1] as SendPort;
+    try {
+      if(job['action']=='create') {
+        final encoder=ZipFileEncoder(); encoder.create(job['destination'] as String);
+        try { for(final path in job['files'] as List<String>) { await encoder.addFile(File(path),p.basename(path)); } }
+        finally { await encoder.close(); }
+      } else { await _extractWorker(job['path'] as String,job['destination'] as String); }
+      port.send({'done':true});
+    } catch(e) { port.send({'error':e.toString(),'format':e is FormatException}); }
+  }
+  static Future<void> _archiveJob(Map<String,Object> job,Cancellation cancel) async {
+    cancel.check(); final port=ReceivePort(); final completer=Completer<void>();
+    final isolate=await Isolate.spawn(_archiveEntry,<Object>[job,port.sendPort]);
+    final subscription=port.listen((dynamic message) {
+      if(completer.isCompleted) return;
+      final data=message as Map;
+      if(data['error']!=null) completer.completeError(data['format']==true?FormatException(data['error'] as String):FileSystemException(data['error'] as String));
+      else completer.complete();
+    });
+    cancel.onCancel(() { isolate.kill(priority:Isolate.immediate); if(!completer.isCompleted) completer.completeError(const Cancelled()); });
+    try { await completer.future; }
+    finally { await subscription.cancel(); port.close(); isolate.kill(); }
+  }
+  static Future<void> _extractWorker(String path,String destination) async {
     final input=InputFileStream(path);
     try {
       final archive=ZipDecoder().decodeStream(input); int expanded=0;
       if(archive.files.length>10000) throw const FormatException('Archive exceeds 10,000 entry limit');
-      for(final file in archive) { cancel.check(); archiveDestination(destination,file.name); if(file.isSymbolicLink) throw const FormatException('Archive symlinks are rejected'); expanded+=file.size; if(expanded>512*1024*1024) throw const FormatException('Archive exceeds 512 MiB expansion limit'); }
+      for(final file in archive) { archiveDestination(destination,file.name); if(file.isSymbolicLink) throw const FormatException('Archive symlinks are rejected'); expanded+=file.size; if(expanded>512*1024*1024) throw const FormatException('Archive exceeds 512 MiB expansion limit'); }
       await Directory(destination).create();
       for(final file in archive) {
-        cancel.check(); final target=archiveDestination(destination,file.name);
+        final target=archiveDestination(destination,file.name);
         if(file.isFile) { await Directory(p.dirname(target)).create(recursive:true); final output=OutputFileStream(target); try { file.writeContent(output); } finally { await output.close(); } }
         else { await Directory(target).create(recursive:true); }
         await Future<void>.delayed(Duration.zero);

@@ -18,7 +18,7 @@ class FilesPage extends ConsumerStatefulWidget {
 class _FilesPageState extends ConsumerState<FilesPage> {
   String? current; List<FileSystemEntity> entries=[]; String search='',category='All'; bool grid=false,descending=false; String sort='Name'; final selected=<String>{}; String? listingError;
   Future<void> choose() async {
-    final path=await FilePicker.platform.getDirectoryPath(dialogTitle:'Choose an accessible folder');
+    final path=await FilePicker.getDirectoryPath(dialogTitle:'Choose an accessible folder');
     if(path==null||!mounted) return;
     ref.read(controllerProvider).root=path; current=path; await load();
   }
@@ -65,7 +65,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   }
   Future<void> navigate(String path) async { current=path; await load(); }
   Future<void> newFolder() async { final name=await prompt('New folder name'); if(name!=null) await operation('Create folder',(_)=>Directory(safeChild(current!,name)).create()); }
-  Future<void> transfer(bool move) async { final destination=await FilePicker.platform.getDirectoryPath(); if(destination==null) return; final sources=selected.toList(); await operation(move?'Move files':'Copy files',(token) async { for(final source in sources) { await ref.read(controllerProvider).files.copy(source,safeChild(destination,p.basename(source)),token,move:move); } }); }
+  Future<void> transfer(bool move) async { final destination=await FilePicker.getDirectoryPath(); if(destination==null) return; final sources=selected.toList(); await operation(move?'Move files':'Copy files',(token) async { for(final source in sources) { await ref.read(controllerProvider).files.copy(source,safeChild(destination,p.basename(source)),token,move:move); } }); }
   Future<void> remove() async {
     final targets=selected.toList();
     final confirmed=await showDialog<bool>(context:context,builder:(context)=>AlertDialog(title:Text('Permanently delete ${targets.length} files?'),content:const Text('These files will not go to a recycle bin. Recovery is not guaranteed. No folders are deleted.'),actions:[TextButton(onPressed:()=>Navigator.pop(context,false),child:const Text('Cancel')),FilledButton(onPressed:()=>Navigator.pop(context,true),child:const Text('Permanently delete'))]));

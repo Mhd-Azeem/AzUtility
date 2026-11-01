@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:collection';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/legacy.dart';
@@ -26,6 +25,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   List<Metric> metrics=[];
   List<Map<String,dynamic>> history=[];
   final samples=ListQueue<NetworkSample>();
+  final metricHistory=<String,ListQueue<double>>{};
   List<List<IndexedFile>> duplicateGroups=[];
   String? root;
   String? error;
@@ -41,7 +41,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   void _startMonitor() { _monitor?.cancel(); _monitor=Timer.periodic(const Duration(seconds:5),(_)=>refreshMetrics()); }
   @override void didChangeAppLifecycleState(AppLifecycleState state) { if(state==AppLifecycleState.resumed) { _startMonitor(); refreshMetrics(); } else { _monitor?.cancel(); } }
   @override void notifyListeners() { if(!_disposed) super.notifyListeners(); }
-  Future<void> refreshMetrics() async { if(_refreshing||_disposed) return; _refreshing=true; try { metrics=await device.snapshot(); } catch(e) { error='Monitoring: $e'; } finally { _refreshing=false; } notifyListeners(); }
+  Future<void> refreshMetrics() async { if(_refreshing||_disposed) return; _refreshing=true; try { metrics=await device.snapshot(); for(final metric in metrics.where((m)=>m.ratio!=null)) { final values=metricHistory.putIfAbsent(metric.label,ListQueue<double>.new); values.add(metric.ratio!*100); if(values.length>180) values.removeFirst(); } } catch(e) { error='Monitoring: $e'; } finally { _refreshing=false; } notifyListeners(); }
   Future<void> refresh() async { history=await db.history(); await refreshMetrics(); }
   Future<void> set(String key,dynamic value) async { settings[key]=value; notifyListeners(); await db.set(key,value); }
   void cancel() { _cancel?.cancel(); status='Cancelling…'; notifyListeners(); }

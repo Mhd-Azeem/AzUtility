@@ -23,7 +23,7 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
     ]);
   }
   Future<void> export(String format,List<Map<String,dynamic>> records) async {
-    final directory=await FilePicker.platform.getDirectoryPath(dialogTitle:'Choose export folder'); if(directory==null||!mounted) return;
+    final directory=await FilePicker.getDirectoryPath(dialogTitle:'Choose export folder'); if(directory==null||!mounted) return;
     final app=ref.read(controllerProvider);
     await app.run('Export ${format.toUpperCase()}',(token) async { token.check(); final path=await ReportService().export(directory,format,records); token.check(); app.result={'export':path}; await OpenFilex.open(path); });
   }
