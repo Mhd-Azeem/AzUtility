@@ -61,6 +61,8 @@ jobs:
           fi
           chmod +x android/gradlew
           flutter build apk --release --target-platform android-arm64
+          python3 scripts/verify_apk.py build/app/outputs/flutter-apk/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
           mkdir -p dist
           cp build/app/outputs/flutter-apk/app-release.apk "dist/AZUtility-v1.0.0-android-arm64${suffix}.apk"
           cd dist && sha256sum *.apk > SHA256SUMS-android.txt

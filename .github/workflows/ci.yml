@@ -43,6 +43,10 @@ jobs:
           fi
       - run: chmod +x android/gradlew
       - run: flutter build apk --release --target-platform android-arm64
+      - name: Validate APK identity, architecture and signature
+        run: |
+          python3 scripts/verify_apk.py build/app/outputs/flutter-apk/app-release.apk
+          "$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --verbose --print-certs build/app/outputs/flutter-apk/app-release.apk
       - name: Package with honest signing label
         env:
           KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

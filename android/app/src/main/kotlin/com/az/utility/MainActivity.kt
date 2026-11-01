@@ -96,6 +96,8 @@ class MainActivity : FlutterActivity() {
     val batteryStatus=when(battery?.getIntExtra(BatteryManager.EXTRA_STATUS,0)) { BatteryManager.BATTERY_STATUS_CHARGING -> "Charging"; BatteryManager.BATTERY_STATUS_DISCHARGING -> "Discharging"; BatteryManager.BATTERY_STATUS_FULL -> "Full"; BatteryManager.BATTERY_STATUS_NOT_CHARGING -> "Not charging"; else -> "Unavailable" }
     val source=when(battery?.getIntExtra(BatteryManager.EXTRA_PLUGGED,0)) { BatteryManager.BATTERY_PLUGGED_AC -> "AC"; BatteryManager.BATTERY_PLUGGED_USB -> "USB"; BatteryManager.BATTERY_PLUGGED_WIRELESS -> "Wireless"; 0 -> "Battery"; else -> "Other" }
     add("Battery status / source","$batteryStatus / $source")
+    val health=when(battery?.getIntExtra(BatteryManager.EXTRA_HEALTH,0)) { BatteryManager.BATTERY_HEALTH_GOOD -> "Good"; BatteryManager.BATTERY_HEALTH_OVERHEAT -> "Overheated"; BatteryManager.BATTERY_HEALTH_DEAD -> "Dead"; BatteryManager.BATTERY_HEALTH_OVER_VOLTAGE -> "Over-voltage"; BatteryManager.BATTERY_HEALTH_COLD -> "Cold"; BatteryManager.BATTERY_HEALTH_UNSPECIFIED_FAILURE -> "Unspecified failure"; else -> "Unavailable" }
+    add("Battery reported condition","$health (Android status; battery wear is not assessed)",status=if(health=="Unavailable") "temporarilyUnavailable" else "available")
     val cpu=android.os.Process.getElapsedCpuTime(); val wall=android.os.SystemClock.elapsedRealtime()
     if(wall>lastWall) add("AZ process CPU (one-core basis)","${((cpu-lastCpu)*100.0/(wall-lastWall))}%")
     lastCpu=cpu; lastWall=wall

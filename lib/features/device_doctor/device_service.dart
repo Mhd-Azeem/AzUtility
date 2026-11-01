@@ -25,13 +25,16 @@ class DeviceService {
   ) async* {
     final timer = Stopwatch()..start();
     if (kind == 'CPU') {
-      int work = 0;
+      int work = 0, checksum = 0;
       for (int i = 0; i < 20; i++) {
         cancel.check();
-        work += await Isolate.run(() => _cpuChunk());
+        final int chunkChecksum = await Isolate.run<int>(_cpuChunk);
+        checksum = (checksum + chunkChecksum) & 0x7fffffff;
+        work += 500000;
         yield {
           'progress': (i + 1) / 20,
           'iterations': work,
+          'checksum': checksum,
           'seconds': timer.elapsedMicroseconds / 1e6,
         };
       }
@@ -39,14 +42,19 @@ class DeviceService {
         'progress': 1.0,
         'complete': true,
         'iterations': work,
+        'checksum': checksum,
         'seconds': timer.elapsedMicroseconds / 1e6,
         'definition':
             '20 bounded integer arithmetic chunks; iterations per second, no cross-device score',
       };
     } else if (kind == 'Memory') {
+      int checksum = 0;
       for (int i = 0; i < 8; i++) {
         cancel.check();
-        await Isolate.run(() => _memoryChunk());
+        final allocation = await Isolate.run(_memoryChunk);
+        for (int offset = 0; offset < allocation.length; offset += 4096) {
+          checksum += allocation[offset];
+        }
         yield {
           'progress': (i + 1) / 8,
           'seconds': timer.elapsedMicroseconds / 1e6,
@@ -56,6 +64,7 @@ class DeviceService {
         'complete': true,
         'allocatedMiB': 64,
         'peakChunkMiB': 8,
+        'checksum': checksum,
         'seconds': timer.elapsedMicroseconds / 1e6,
       };
     } else {
@@ -107,20 +116,18 @@ class DeviceService {
   }
 
   static int _cpuChunk() {
-    int value = 7;
+    int value = DateTime.now().microsecondsSinceEpoch & 0x7fffffff;
     for (int i = 0; i < 500000; i++) {
       value = (value * 1664525 + 1013904223) & 0x7fffffff;
     }
-    return value == -1 ? 0 : 500000;
+    return value;
   }
 
-  static int _memoryChunk() {
+  static Uint8List _memoryChunk() {
     final data = Uint8List(8 * 1024 * 1024);
-    int sum = 0;
     for (int i = 0; i < data.length; i += 4096) {
       data[i] = i % 251;
-      sum += data[i];
     }
-    return sum;
+    return data;
   }
 }
