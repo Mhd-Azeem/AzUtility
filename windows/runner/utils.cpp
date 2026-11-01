@@ -1,4 +1,5 @@
 #include "utils.h"
+#include <shellapi.h>
 
 #include <flutter_windows.h>
 #include <io.h>
