@@ -27,6 +27,21 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   String sort = 'Name';
   final selected = <String>{};
   String? listingError;
+  @override
+  void initState() {
+    super.initState();
+    final app = ref.read(controllerProvider);
+    app.ready.then((_) async {
+      if (!mounted) return;
+      grid = app.settings['fileGrid'] == true;
+      sort = app.settings['fileSort'] as String? ?? 'Name';
+      current = app.root;
+      if (current != null) {
+        await load();
+      }
+    });
+  }
+
   Future<void> choose() async {
     final path = await FilePicker.getDirectoryPath(
       dialogTitle: 'Choose an accessible folder',
@@ -277,7 +292,10 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                     ),
                     IconButton(
                       tooltip: 'Grid or list',
-                      onPressed: () => setState(() => grid = !grid),
+                      onPressed: () {
+                        setState(() => grid = !grid);
+                        app.set('fileGrid', grid);
+                      },
                       icon: Icon(grid ? Icons.view_list : Icons.grid_view),
                     ),
                   ],
@@ -317,7 +335,10 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                         for (final mode in ['Name', 'Size', 'Modified'])
                           DropdownMenuItem(value: mode, child: Text(mode)),
                       ],
-                      onChanged: (value) => setState(() => sort = value!),
+                      onChanged: (value) {
+                        setState(() => sort = value!);
+                        app.set('fileSort', value);
+                      },
                     ),
                     TextButton(
                       onPressed: app.busy ? null : () => newFolder(),
@@ -416,6 +437,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         !folder &&
             !link &&
             classify(name) == 'Images' &&
+            ref.read(controllerProvider).settings['thumbnails'] != false &&
             [
               'jpg',
               'jpeg',

@@ -47,17 +47,28 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   bool _disposed = false;
   bool _refreshing = false;
   Future<void> _initialize() async {
-    settings = await db.settings();
-    files.index.addAll(await db.loadIndex());
-    root = settings['scanRoot'] as String?;
-    await refresh();
+    try {
+      settings = await db.settings();
+      files.index.addAll(await db.loadIndex());
+      root = settings['scanRoot'] as String?;
+      await refresh();
+    } catch (e) {
+      error = 'Local storage could not be loaded: $e';
+      await refreshMetrics();
+    }
     _startMonitor();
   }
 
   void _startMonitor() {
+    if (_disposed) return;
     _monitor?.cancel();
     _monitor = Timer.periodic(
-      const Duration(seconds: 5),
+      Duration(
+        seconds: ((settings['refreshSeconds'] as num?)?.toInt() ?? 5).clamp(
+          2,
+          60,
+        ),
+      ),
       (_) => refreshMetrics(),
     );
   }
@@ -99,14 +110,27 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   Future<void> refresh() async {
-    history = await db.history();
+    try {
+      history = await db.history();
+    } catch (e) {
+      error = 'Local history is unavailable: $e';
+    }
     await refreshMetrics();
+    notifyListeners();
   }
 
   Future<void> set(String key, dynamic value) async {
+    final previous = settings[key];
     settings[key] = value;
     notifyListeners();
-    await db.set(key, value);
+    try {
+      await db.set(key, value);
+      if (key == 'refreshSeconds') _startMonitor();
+    } catch (e) {
+      settings[key] = previous;
+      error = 'Preference could not be saved: $e';
+      notifyListeners();
+    }
   }
 
   void cancel() {

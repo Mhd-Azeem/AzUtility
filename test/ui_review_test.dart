@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'dart:ui' as ui;
-import 'dart:typed_data';
 import 'package:az_utility/app/az_utility_app.dart';
 import 'package:az_utility/app/controller.dart';
 import 'package:az_utility/core/database/app_database.dart';

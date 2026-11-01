@@ -99,6 +99,9 @@ class MainActivity : FlutterActivity() {
     lastCpu=cpu; lastWall=wall
     add("System CPU load","Unsupported by public Android API",status="unsupported")
     add("Device","${Build.MANUFACTURER} ${Build.MODEL}"); add("Architecture",Build.SUPPORTED_ABIS.joinToString())
+    val micGranted=checkSelfPermission(Manifest.permission.RECORD_AUDIO)==PackageManager.PERMISSION_GRANTED
+    add("Microphone permission",if(micGranted) "Granted" else "Requested only for microphone test",status=if(micGranted) "available" else "permissionRequired")
+    add("Document-provider access","${contentResolver.persistedUriPermissions.size} persisted folder grants")
     add("Display","${resources.displayMetrics.widthPixels} × ${resources.displayMetrics.heightPixels}")
     val manager=getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
     val caps=manager.getNetworkCapabilities(manager.activeNetwork)

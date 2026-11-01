@@ -11,11 +11,12 @@ class SettingsPage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final app = ref.watch(controllerProvider);
-    Widget toggle(String title, String key) => SwitchListTile(
-      title: Text(title),
-      value: app.settings[key] == true,
-      onChanged: (v) => app.set(key, v),
-    );
+    Widget toggle(String title, String key, {bool fallback = false}) =>
+        SwitchListTile(
+          title: Text(title),
+          value: app.settings[key] as bool? ?? fallback,
+          onChanged: (v) => app.set(key, v),
+        );
     Widget input(String title, String key, String fallback) => Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: TextFormField(
@@ -40,6 +41,7 @@ class SettingsPage extends ConsumerWidget {
               toggle('Purple accent', 'purple'),
               toggle('Reduced motion', 'reducedMotion'),
               toggle('Compact display density', 'compact'),
+              toggle('Image thumbnails', 'thumbnails', fallback: true),
             ],
           ),
         ),
@@ -47,6 +49,47 @@ class SettingsPage extends ConsumerWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Device monitoring',
+                      style: Theme.of(context).textTheme.titleLarge,
+                    ),
+                    ListTile(
+                      title: const Text('Refresh interval'),
+                      trailing: DropdownButton<int>(
+                        value:
+                            (app.settings['refreshSeconds'] as num?)?.toInt() ??
+                            5,
+                        items: [
+                          for (final seconds in [2, 5, 10, 30, 60])
+                            DropdownMenuItem(
+                              value: seconds,
+                              child: Text('$seconds seconds'),
+                            ),
+                        ],
+                        onChanged: (value) => app.set('refreshSeconds', value),
+                      ),
+                    ),
+                    const Text(
+                      'Benchmarks use conservative fixed limits. Monitoring stops while the app is in the background.',
+                    ),
+                    ExpansionTile(
+                      title: const Text('Permission and capability status'),
+                      children: app.metrics
+                          .map(
+                            (metric) => ListTile(
+                              title: Text(metric.label),
+                              subtitle: Text(metric.status.name),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                  ],
+                ),
+              ),
               Text('Network', style: Theme.of(context).textTheme.titleLarge),
               input(
                 'Diagnostic HTTPS endpoint',

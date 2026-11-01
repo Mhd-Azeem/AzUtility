@@ -40,8 +40,8 @@ class DevicePage extends ConsumerWidget {
                           .toList(),
                     ),
                   ),
-                  const Text(
-                    'Percent history · 5 second samples · Last 15 minutes in memory',
+                  Text(
+                    'Percent history · ${app.settings['refreshSeconds'] ?? 5} second samples · Last 180 samples in memory',
                   ),
                 ],
               ),
