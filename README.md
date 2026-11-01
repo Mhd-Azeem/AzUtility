@@ -27,7 +27,7 @@ Windows: extract the entire distribution ZIP into a user-writable folder, keepin
 
 One local SQLite database stores settings, bounded diagnostic history and the latest file index. Each history category can be cleared in Settings. Android uses a folder picker and persistable SAF URI grants; microphone access is requested only for the recording test. No root, All files access or location permission is requested. Files accessible to a document provider are browsed separately from readable filesystem paths. Other apps' private data is inaccessible.
 
-Network latency means TCP connection time or HTTPS header time as labeled, never ICMP ping. Failure estimates are failed TCP connection attempts, not packet-level loss. LAN discovery requires explicit private-interface selection and probes only TCP port 443 in a /24; devices without that service may be missed.
+Network latency means TCP connection time to the first resolved address (excluding DNS lookup) or HTTPS header time as labeled, never ICMP ping. Failure estimates are DNS/TCP failures per diagnostic attempt, not packet-level loss. Throughput counts uncompressed HTTP payload bytes. LAN discovery requires explicit private-interface selection and probes only TCP port 443 in a /24; devices without that service may be missed.
 
 File scans do not follow symlinks and stop at 100,000 indexed files. Duplicate groups use full SHA-256 with before/after metadata checks. File deletion is explicit, confirmed and permanent; there is no recovery guarantee. ZIP extraction rejects traversal and links, refuses an existing destination and caps expansion at 512 MiB / 10,000 entries. Cancellation can leave a partially extracted folder.
 
