@@ -16,6 +16,7 @@ class IntegrationDocuments : DocumentsProvider() {
     File(root,"a.txt").writeText("AZ provider integration")
     File(root,"b.txt").writeText("AZ provider integration")
     File(root,"destination").mkdir()
+    java.util.zip.ZipOutputStream(File(root,"unsafe.zip").outputStream()).use { zip -> zip.putNextEntry(java.util.zip.ZipEntry("../escaped.txt")); zip.write("unsafe".toByteArray()); zip.closeEntry() }
     return true
   }
   private fun file(id:String):File {

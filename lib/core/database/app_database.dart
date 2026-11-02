@@ -171,7 +171,10 @@ class AppDatabase extends GeneratedDatabase {
 
   Future<void> clear(String category) => transaction(() async {
     await customStatement('DELETE FROM records WHERE category=?', [category]);
-    if (category == 'files') await customStatement('DELETE FROM indexed_files');
+    if (category == 'files') {
+      await customStatement('DELETE FROM indexed_files');
+      await customStatement("DELETE FROM settings WHERE key='safLatestIndex'");
+    }
     if (category == 'device') {
       await customStatement('DELETE FROM monitor_samples');
     }

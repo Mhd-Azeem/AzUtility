@@ -299,6 +299,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
         'bytes': update.total,
         'errors': update.errors,
         'root': root,
+        'currentLocation': update.location,
         'coverage': 'Selected accessible folder only; bounded to 100,000 files',
       };
       notifyListeners();

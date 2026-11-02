@@ -268,9 +268,11 @@ class SettingsPage extends ConsumerWidget {
                     if (yes == true) {
                       await app.db.clear(category);
                       if (category == 'files') {
+                        app.settings.remove('safLatestIndex');
                         app.files.index.clear();
                         app.duplicateGroups.clear();
                       }
+                      if (category == 'device') app.metricHistory.clear();
                       await app.refresh();
                     }
                   },

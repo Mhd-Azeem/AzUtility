@@ -17,6 +17,7 @@
 #include <wlanapi.h>
 #include <mmsystem.h>
 #include <cstring>
+#include <cstdio>
 
 namespace az {
 inline std::string Utf8(const std::wstring& text) {
@@ -67,9 +68,11 @@ inline flutter::EncodableList Snapshot() {
     }
   }
   ULONG length=16384; std::vector<unsigned char> buffer(length); auto adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data());
-  ULONG code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST,nullptr,adapters,&length);
-  if(code==ERROR_BUFFER_OVERFLOW) { buffer.resize(length); adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST,nullptr,adapters,&length); }
+  ULONG code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST|GAA_FLAG_INCLUDE_GATEWAYS,nullptr,adapters,&length);
+  if(code==ERROR_BUFFER_OVERFLOW) { buffer.resize(length); adapters=reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); code=GetAdaptersAddresses(AF_UNSPEC,GAA_FLAG_SKIP_ANYCAST|GAA_FLAG_SKIP_MULTICAST|GAA_FLAG_INCLUDE_GATEWAYS,nullptr,adapters,&length); }
+  bool networkUp=false;
   if(code==NO_ERROR) for(auto adapter=adapters;adapter;adapter=adapter->Next) if(adapter->OperStatus==IfOperStatusUp) {
+    networkUp=true;
     add("Network adapter",Utf8(adapter->FriendlyName));
     for(auto unicast=adapter->FirstUnicastAddress;unicast;unicast=unicast->Next) {
       char address[INET6_ADDRSTRLEN]{}; auto socket=unicast->Address.lpSockaddr;
@@ -77,6 +80,7 @@ inline flutter::EncodableList Snapshot() {
       if(data && InetNtopA(socket->sa_family,const_cast<void*>(data),address,sizeof(address))) add("Local IP",address);
     }
   }
+  add("Active network",networkUp?"Adapter connected (internet access not yet tested)":"No active adapter");
   HANDLE wlan=nullptr; DWORD version=0;
   DWORD opened=WlanOpenHandle(2,nullptr,&version,&wlan);
   bool wifiFound=false;
@@ -84,9 +88,9 @@ inline flutter::EncodableList Snapshot() {
     PWLAN_INTERFACE_INFO_LIST interfaces=nullptr;
     if(WlanEnumInterfaces(wlan,nullptr,&interfaces)==ERROR_SUCCESS) {
       for(DWORD i=0;i<interfaces->dwNumberOfItems;i++) {
-        DWORD length=0; PVOID data=nullptr; WLAN_OPCODE_VALUE_TYPE type;
-        DWORD code=WlanQueryInterface(wlan,&interfaces->InterfaceInfo[i].InterfaceGuid,wlan_intf_opcode_current_connection,nullptr,&length,&data,&type);
-        if(code==ERROR_SUCCESS && data) {
+        DWORD wlanLength=0; PVOID data=nullptr; WLAN_OPCODE_VALUE_TYPE type;
+        DWORD wlanCode=WlanQueryInterface(wlan,&interfaces->InterfaceInfo[i].InterfaceGuid,wlan_intf_opcode_current_connection,nullptr,&wlanLength,&data,&type);
+        if(wlanCode==ERROR_SUCCESS && data) {
           auto info=static_cast<WLAN_CONNECTION_ATTRIBUTES*>(data);
           if(info->isState==wlan_interface_state_connected) {
             wifiFound=true;
@@ -100,7 +104,7 @@ inline flutter::EncodableList Snapshot() {
             if(WlanQueryInterface(wlan,&interfaces->InterfaceInfo[i].InterfaceGuid,wlan_intf_opcode_channel_number,nullptr,&channelSize,&channelData,&type)==ERROR_SUCCESS && channelData) { add("Wi-Fi channel",std::to_string(*static_cast<ULONG*>(channelData))); WlanFreeMemory(channelData); }
           }
           WlanFreeMemory(data);
-        } else if(code==ERROR_ACCESS_DENIED) add("Wi-Fi identifiers","Enable Windows Location access for desktop apps",-1,"permissionRequired");
+        } else if(wlanCode==ERROR_ACCESS_DENIED) add("Wi-Fi identifiers","Enable Windows Location access for desktop apps",-1,"permissionRequired");
       }
       WlanFreeMemory(interfaces);
     }

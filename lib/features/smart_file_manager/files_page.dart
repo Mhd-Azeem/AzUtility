@@ -72,7 +72,28 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         (_) {
           watchDebounce?.cancel();
           watchDebounce = Timer(const Duration(milliseconds: 600), () {
-            if (mounted) load();
+            if (mounted) {
+              load();
+              final app = ref.read(controllerProvider);
+              if (!app.busy &&
+                  app.root != null &&
+                  (current == app.root || p.isWithin(app.root!, current!)) &&
+                  app.files.index.isNotEmpty) {
+                unawaited(
+                  app.files
+                      .refreshDirectory(current!)
+                      .then((_) => app.db.saveIndex(app.files.index))
+                      .then((_) => app.notifyListeners())
+                      .catchError((Object e) {
+                        if (mounted) {
+                          setState(
+                            () => listingError = 'Index update failed: $e',
+                          );
+                        }
+                      }),
+                );
+              }
+            }
           });
         },
         onError: (Object e) {

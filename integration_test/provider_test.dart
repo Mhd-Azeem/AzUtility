@@ -24,14 +24,15 @@ void main() {
     final files = await channel.invokeListMethod<dynamic>('documentScan', {
       'uri': root,
     });
-    expect(files, hasLength(2));
+    expect(files, hasLength(3));
     final duplicates = await channel.invokeListMethod<dynamic>(
       'documentDuplicates',
       {'uri': root},
     );
     expect(duplicates, hasLength(1));
     expect((duplicates!.single as List), hasLength(2));
-    final a = (files!.first as Map)['uri'];
+    final a =
+        (files!.firstWhere((dynamic f) => f['name'] == 'a.txt') as Map)['uri'];
     final destination =
         (rows.firstWhere((dynamic r) => r['name'] == 'destination')
             as Map)['uri'];
@@ -72,6 +73,26 @@ void main() {
     final after = await channel.invokeListMethod<dynamic>('documentScan', {
       'uri': root,
     });
-    expect(after, hasLength(5));
+    expect(after, hasLength(6));
+    final unsafe =
+        (rows.firstWhere((dynamic r) => r['name'] == 'unsafe.zip')
+            as Map)['uri'];
+    await expectLater(
+      channel.invokeMethod<dynamic>('documentExtract', {
+        'uri': unsafe,
+        'destination': root,
+        'name': 'rejected',
+      }),
+      throwsA(isA<PlatformException>()),
+    );
+    final finalRows = await channel.invokeListMethod<dynamic>('listSaf', {
+      'uri': root,
+    });
+    expect(
+      finalRows!.where(
+        (dynamic r) => r['name'] == 'rejected' || r['name'] == 'escaped.txt',
+      ),
+      isEmpty,
+    );
   });
 }

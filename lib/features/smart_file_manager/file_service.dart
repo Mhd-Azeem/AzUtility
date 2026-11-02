@@ -54,6 +54,27 @@ String archiveDestination(String root, String name) {
 
 class FileService {
   final List<IndexedFile> index = [];
+  Future<void> refreshDirectory(String directory) async {
+    await _noLink(directory);
+    final updated = <IndexedFile>[];
+    await for (final entry in Directory(directory).list(followLinks: false)) {
+      if (entry is File) {
+        final stat = await entry.stat();
+        updated.add(
+          IndexedFile(
+            entry.path,
+            stat.size,
+            stat.modified,
+            classify(entry.path),
+          ),
+        );
+      }
+      if (updated.length >= 10000) break;
+    }
+    index.removeWhere((f) => p.dirname(f.path) == directory);
+    index.addAll(updated.take(100000 - index.length));
+  }
+
   // Stream directory entries, do not follow links, and cap retained index size.
   Stream<ScanUpdate> scan(
     String root,

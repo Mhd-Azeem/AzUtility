@@ -30,6 +30,32 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
       children: [
         MetricGrid(
           metrics: [
+            ...app.metrics.where(
+              (m) =>
+                  m.label == 'Active network' ||
+                  m.label == 'Local IP' ||
+                  m.label == 'Internet validation',
+            ),
+            Metric(
+              'DNS status',
+              samples.isEmpty
+                  ? 'Not measured'
+                  : samples.last.addresses.isEmpty
+                  ? 'Resolution unavailable or failed'
+                  : 'Resolved ${samples.last.addresses.length} addresses',
+            ),
+            Metric(
+              'Latest throughput',
+              app.history
+                      .where(
+                        (r) =>
+                            r['category'] == 'network' &&
+                            '${r['title']}'.contains('throughput'),
+                      )
+                      .firstOrNull?['payload']
+                      ?.toString() ??
+                  'Not measured',
+            ),
             Metric('TCP connection latency', ms(stats.mean)),
             Metric('Successive-sample jitter', ms(stats.jitter)),
             Metric(
@@ -153,13 +179,30 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
                 const Text(
                   'Attention recommended: one or more attempts failed. Check the recorded error, configured endpoint, local connection and DNS settings. This alone does not identify an ISP fault.',
                 ),
-              if ((stats.mean ?? 0) > 300)
+              if (samples.any((s) => s.addresses.isEmpty && s.error != null))
                 const Text(
-                  'Attention recommended: average TCP connection time exceeds 300 ms for this endpoint. Distance, routing and congestion may contribute; compare another endpoint. Confidence: limited.',
+                  'DNS or connection setup failed in at least one attempt. Check the session error and compare a different configured hostname. A disconnected interface, blocked resolver or unavailable domain may explain it. Confidence: limited; no ISP fault is established.',
+                ),
+              if (samples.where((s) => s.error == 'Timeout').length > 1)
+                Text(
+                  '${samples.where((s) => s.error == 'Timeout').length} attempts timed out. Repeat with another authorized endpoint and check local connectivity. Confidence: limited; remote service load can also cause timeouts.',
+                ),
+              if (samples.indexed.any(
+                (pair) =>
+                    pair.$1 > 0 &&
+                    pair.$2.tcpMs == null &&
+                    samples[pair.$1 - 1].tcpMs != null,
+              ))
+                const Text(
+                  'A failed connection followed a successful attempt. This may indicate an intermittent connection or endpoint interruption. Compare another endpoint. Confidence: limited.',
+                ),
+              if ((stats.mean ?? 0) > 300)
+                Text(
+                  'Attention recommended: mean TCP connection time ${stats.mean!.toStringAsFixed(1)} ms exceeds 300 ms for this endpoint. Distance, routing and congestion may contribute; compare another endpoint. Confidence: limited.',
                 ),
               if ((stats.jitter ?? 0) > 50)
-                const Text(
-                  'Attention recommended: successive TCP times vary by more than 50 ms on average. Repeat on another connection. Confidence: limited.',
+                Text(
+                  'Attention recommended: successive TCP times vary by ${stats.jitter!.toStringAsFixed(1)} ms on average. Repeat on another connection. Confidence: limited.',
                 ),
               if (samples.isNotEmpty &&
                   samples.every((s) => s.error == null) &&
