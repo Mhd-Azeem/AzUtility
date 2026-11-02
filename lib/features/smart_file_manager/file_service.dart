@@ -532,10 +532,11 @@ class FileService {
                 ),
               );
               if (entry is File) bytes += child.size;
-              if (entries.length > 10000 || bytes > 512 * 1024 * 1024)
+              if (entries.length > 10000 || bytes > 512 * 1024 * 1024) {
                 throw const FileSystemException(
                   'ZIP creation exceeds 10,000 entries or 512 MiB',
                 );
+              }
             }
           } else if (stat.type == FileSystemEntityType.file) {
             entries.add(MapEntry(source, name));
@@ -543,10 +544,11 @@ class FileService {
           } else {
             throw const FileSystemException('Unsupported archive source');
           }
-          if (entries.length > 10000 || bytes > 512 * 1024 * 1024)
+          if (entries.length > 10000 || bytes > 512 * 1024 * 1024) {
             throw const FileSystemException(
               'ZIP creation exceeds 10,000 entries or 512 MiB',
             );
+          }
         }
 
         for (final source in paths) {
