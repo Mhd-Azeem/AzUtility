@@ -122,11 +122,12 @@ class FileService {
 
   Future<List<List<IndexedFile>>> duplicates(
     Cancellation cancel,
-    void Function(int, int) progress,
-  ) async {
+    void Function(int, int) progress, {
+    int minimumBytes = 1,
+  }) async {
     final sizes = <int, List<IndexedFile>>{};
     for (final file in index) {
-      if (file.size > 0) (sizes[file.size] ??= []).add(file);
+      if (file.size >= minimumBytes) (sizes[file.size] ??= []).add(file);
     }
     final candidates = sizes.values
         .where((g) => g.length > 1)
@@ -400,8 +401,9 @@ class FileService {
   Future<void> createZip(
     List<String> files,
     String destination,
-    Cancellation cancel,
-  ) async {
+    Cancellation cancel, {
+    void Function(double)? onProgress,
+  }) async {
     if (await File(destination).exists()) {
       throw const FileSystemException('Destination already exists');
     }
@@ -415,11 +417,11 @@ class FileService {
     final temporary =
         '$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
     try {
-      await _archiveJob({
-        'action': 'create',
-        'files': files,
-        'destination': temporary,
-      }, cancel);
+      await _archiveJob(
+        {'action': 'create', 'files': files, 'destination': temporary},
+        cancel,
+        onProgress,
+      );
       cancel.check();
       if (await File(destination).exists()) {
         throw const FileSystemException('Destination already exists');
@@ -433,19 +435,43 @@ class FileService {
   Future<void> extractZip(
     String path,
     String destination,
-    Cancellation cancel,
-  ) async {
+    Cancellation cancel, {
+    String? password,
+    void Function(double)? onProgress,
+  }) async {
     await _noLink(destination);
-    if (await Directory(destination).exists()) {
+    if (await FileSystemEntity.type(destination, followLinks: false) !=
+        FileSystemEntityType.notFound) {
       throw const FileSystemException(
         'Choose a new extraction folder; overwriting is disabled',
       );
     }
-    await _archiveJob({
-      'action': 'extract',
-      'path': path,
-      'destination': destination,
-    }, cancel);
+    final staging =
+        '$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
+    try {
+      await _archiveJob(
+        {
+          'action': 'extract',
+          'path': path,
+          'destination': staging,
+          'password': ?password,
+        },
+        cancel,
+        onProgress,
+      );
+      cancel.check();
+      if (await FileSystemEntity.type(destination, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw const FileSystemException(
+          'Destination appeared during extraction',
+        );
+      }
+      await Directory(staging).rename(destination);
+    } finally {
+      if (await Directory(staging).exists()) {
+        await Directory(staging).delete(recursive: true);
+      }
+    }
   }
 
   static Future<void> _archiveEntry(List<Object> arguments) async {
@@ -456,8 +482,11 @@ class FileService {
         final encoder = ZipFileEncoder();
         encoder.create(job['destination'] as String);
         try {
-          for (final path in job['files'] as List<String>) {
+          final paths = job['files'] as List<String>;
+          int done = 0;
+          for (final path in paths) {
             await encoder.addFile(File(path), p.basename(path));
+            port.send({'progress': ++done / paths.length});
           }
         } finally {
           await encoder.close();
@@ -466,6 +495,8 @@ class FileService {
         await _extractWorker(
           job['path'] as String,
           job['destination'] as String,
+          password: job['password'] as String?,
+          progress: (value) => port.send({'progress': value}),
         );
       }
       port.send({'done': true});
@@ -476,8 +507,9 @@ class FileService {
 
   static Future<void> _archiveJob(
     Map<String, Object> job,
-    Cancellation cancel,
-  ) async {
+    Cancellation cancel, [
+    void Function(double)? onProgress,
+  ]) async {
     cancel.check();
     final port = ReceivePort();
     final completer = Completer<void>();
@@ -488,6 +520,10 @@ class FileService {
     final subscription = port.listen((dynamic message) {
       if (completer.isCompleted) return;
       final data = message as Map;
+      if (data['progress'] is num) {
+        onProgress?.call((data['progress'] as num).toDouble());
+        return;
+      }
       if (data['error'] != null) {
         completer.completeError(
           data['format'] == true
@@ -511,15 +547,30 @@ class FileService {
     }
   }
 
-  static Future<void> _extractWorker(String path, String destination) async {
+  static Future<void> _extractWorker(
+    String path,
+    String destination, {
+    String? password,
+    void Function(double)? progress,
+  }) async {
     final input = InputFileStream(path);
     try {
-      final archive = ZipDecoder().decodeStream(input);
+      final archive = ZipDecoder().decodeStream(
+        input,
+        password: password,
+        verify: true,
+      );
       int expanded = 0;
       if (archive.files.length > 10000) {
         throw const FormatException('Archive exceeds 10,000 entry limit');
       }
+      final names = <String>{};
       for (final file in archive) {
+        if (!names.add(
+          Platform.isWindows ? file.name.toLowerCase() : file.name,
+        )) {
+          throw const FormatException('Conflicting ZIP paths');
+        }
         archiveDestination(destination, file.name);
         if (file.isSymbolicLink) {
           throw const FormatException('Archive symlinks are rejected');
@@ -535,19 +586,28 @@ class FileService {
       // Windows TEMP may contain a DOS 8.3 alias (e.g. RUNNER~1). Use the
       // resolved root consistently for the archive library's containment checks.
       final canonical = await Directory(destination).resolveSymbolicLinks();
-      await extractArchiveToDisk(
-        archive,
-        canonical,
-        maxSize: 512 * 1024 * 1024,
-        throwOnError: true,
-      );
-      for (final entry in archive.where((entry) => entry.isFile)) {
-        if (!await File(archiveDestination(canonical, entry.name)).exists()) {
-          throw FileSystemException(
-            'Archive entry was not extracted',
-            entry.name,
-          );
+      int actual = 0, done = 0;
+      for (final entry in archive) {
+        await extractArchiveToDisk(
+          Archive()..addFile(entry),
+          canonical,
+          maxSize: 512 * 1024 * 1024 - actual,
+          throwOnError: true,
+        );
+        if (entry.isFile) {
+          final file = File(archiveDestination(canonical, entry.name));
+          if (!await file.exists()) {
+            throw FileSystemException(
+              'Archive entry was not extracted',
+              entry.name,
+            );
+          }
+          actual += await file.length();
+          if (actual > 512 * 1024 * 1024) {
+            throw const FormatException('Archive expansion limit exceeded');
+          }
         }
+        progress?.call(++done / archive.length);
       }
     } finally {
       await input.close();

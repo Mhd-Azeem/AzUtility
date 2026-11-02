@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'sensor_page.dart';
+import '../../core/models.dart';
+import 'package:go_router/go_router.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/controller.dart';
@@ -11,19 +13,57 @@ class DevicePage extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final app = ref.watch(controllerProvider);
+    final primary = <Metric>[
+      app.metrics.where((m) => m.label == 'System CPU load').firstOrNull ??
+          const Metric(
+            'CPU',
+            'Unavailable',
+            status: CapabilityStatus.temporarilyUnavailable,
+          ),
+      app.metrics.where((m) => m.label == 'System RAM used').firstOrNull ??
+          const Metric(
+            'RAM',
+            'Unavailable',
+            status: CapabilityStatus.temporarilyUnavailable,
+          ),
+      app.metrics.where((m) => m.label.contains('volume used')).firstOrNull ??
+          const Metric(
+            'Storage',
+            'Unavailable',
+            status: CapabilityStatus.temporarilyUnavailable,
+          ),
+      app.metrics
+              .where((m) => m.label == 'Battery charge' || m.label == 'Battery')
+              .firstOrNull ??
+          const Metric(
+            'Battery',
+            'Unavailable',
+            status: CapabilityStatus.unsupported,
+          ),
+    ];
     return PageBody(
       title: 'Device Doctor',
       subtitle:
           'Live native observations · ${app.settings['refreshSeconds'] ?? 5} second refresh · No arbitrary health score',
       children: [
         MetricGrid(
-          metrics: app.metrics,
+          metrics: primary,
           onTap: (metric) => Navigator.push(
             context,
             MaterialPageRoute<void>(
               builder: (_) => MetricDetail(label: metric.label),
             ),
           ),
+        ),
+        Panel(
+          child: ExpansionTile(
+            title: const Text('Full hardware inventory'),
+            children: [MetricGrid(metrics: app.metrics)],
+          ),
+        ),
+        OutlinedButton(
+          onPressed: () => context.go('/reports'),
+          child: const Text('Compare previous local results'),
         ),
         if (app.metricHistory.isNotEmpty)
           Panel(
@@ -164,7 +204,11 @@ class DevicePage extends ConsumerWidget {
                         : Icons.check_circle_outline,
                   ),
                   title: Text(
-                    '${metric.label}: ${metric.ratio! > 0.9 ? 'Attention recommended' : 'Observed'}',
+                    '${metric.label}: ${metric.ratio! > 0.97
+                        ? 'Warning'
+                        : metric.ratio! > 0.9
+                        ? 'Attention recommended'
+                        : 'Good for current usage'}',
                   ),
                   subtitle: Text(
                     '${metric.value}. ${metric.ratio! > 0.9 ? 'Usage exceeds 90%; review running apps or storage.' : 'This observation alone does not assess hardware health.'}',

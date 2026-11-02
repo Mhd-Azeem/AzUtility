@@ -92,9 +92,14 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
         ActionWrap(
           children: [
             FilledButton.icon(
-              onPressed: app.busy ? null : () => app.testNetwork(count: range),
+              onPressed: app.busy
+                  ? null
+                  : () => app.testNetwork(
+                      count:
+                          (app.settings['testSamples'] as num?)?.toInt() ?? 60,
+                    ),
               icon: const Icon(Icons.play_arrow),
-              label: Text('Start $range samples'),
+              label: Text('Start ${app.settings['testSamples'] ?? 60} samples'),
             ),
             OutlinedButton(
               onPressed: app.busy ? null : () => app.testNetwork(count: 1),

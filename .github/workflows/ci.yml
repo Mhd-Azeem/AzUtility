@@ -73,6 +73,7 @@ jobs:
       - run: flutter pub get
       - run: flutter analyze
       - run: flutter test
+      - run: flutter test integration_test/startup_test.dart -d windows --timeout 5m
       - run: flutter build windows --release
       - run: ./scripts/package_windows.ps1
       - uses: actions/upload-artifact@v4

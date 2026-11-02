@@ -63,6 +63,14 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       settings = await db.settings();
       files.index.addAll(await db.loadIndex());
       root = settings['scanRoot'] as String?;
+      for (final row in (await db.monitoring()).reversed) {
+        final queue = metricHistory.putIfAbsent(
+          row['label'] as String,
+          ListQueue<double>.new,
+        );
+        queue.add((row['ratio'] as num).toDouble() * 100);
+        if (queue.length > 180) queue.removeFirst();
+      }
       await db.prune((settings['retentionDays'] as num?)?.toInt() ?? 90);
       await refresh();
     } catch (e) {
@@ -302,7 +310,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     duplicateGroups = await files.duplicates(token, (done, total) {
       progress = done / total;
       notifyListeners();
-    });
+    }, minimumBytes: (settings['duplicateMinBytes'] as num?)?.toInt() ?? 1);
     await db.save('files', 'Duplicate scan', {
       'groups': duplicateGroups.length,
       'copies': duplicateGroups.fold<int>(0, (n, g) => n + g.length - 1),
@@ -311,7 +319,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     });
   });
   Future<void> benchmark(String kind) => run('$kind benchmark', (token) async {
-    await for (final update in device.benchmark(kind, token)) {
+    await for (final update in device.benchmark(
+      kind,
+      token,
+      cpuChunks: (settings['cpuChunks'] as num?)?.toInt() ?? 20,
+      memoryMiB: (settings['memoryMiB'] as num?)?.toInt() ?? 64,
+      storageMiB: (settings['storageMiB'] as num?)?.toInt() ?? 16,
+    )) {
       result = update;
       progress = (update['progress'] as num?)?.toDouble();
       notifyListeners();

@@ -32,8 +32,11 @@ class _SafPageState extends ConsumerState<SafPage> {
     super.initState();
     load();
     final cached = ref.read(controllerProvider).settings['safLatestIndex'];
-    if (cached is Map && cached['root'] == widget.uri && cached['rows'] is List)
+    if (cached is Map &&
+        cached['root'] == widget.uri &&
+        cached['rows'] is List) {
       indexed = (cached['rows'] as List).cast<Map<dynamic, dynamic>>();
+    }
   }
 
   @override

@@ -78,8 +78,31 @@ class SettingsPage extends ConsumerWidget {
                       ),
                     ),
                     const Text(
-                      'Benchmarks use conservative fixed limits. Monitoring stops while the app is in the background.',
+                      'Benchmarks use conservative limits. Monitoring stops while the app is in the background.',
                     ),
+                    for (final option in [
+                      ('cpuChunks', 'CPU chunks', [5, 10, 20], 20),
+                      (
+                        'memoryMiB',
+                        'Memory allocation total (MiB)',
+                        [8, 32, 64],
+                        64,
+                      ),
+                      ('storageMiB', 'Storage transfer (MiB)', [4, 8, 16], 16),
+                    ])
+                      ListTile(
+                        title: Text(option.$2),
+                        trailing: DropdownButton<int>(
+                          value:
+                              (app.settings[option.$1] as num?)?.toInt() ??
+                              option.$4,
+                          items: [
+                            for (final n in option.$3)
+                              DropdownMenuItem(value: n, child: Text('$n')),
+                          ],
+                          onChanged: (v) => app.set(option.$1, v),
+                        ),
+                      ),
                     ExpansionTile(
                       title: const Text('Permission and capability status'),
                       children: app.metrics
@@ -125,6 +148,17 @@ class SettingsPage extends ConsumerWidget {
                 ),
               ),
               ListTile(
+                title: const Text('Diagnostic sample count'),
+                trailing: DropdownButton<int>(
+                  value: (app.settings['testSamples'] as num?)?.toInt() ?? 60,
+                  items: [
+                    for (final n in [10, 30, 60, 300, 900])
+                      DropdownMenuItem(value: n, child: Text('$n samples')),
+                  ],
+                  onChanged: (v) => app.set('testSamples', v),
+                ),
+              ),
+              ListTile(
                 title: const Text('Sample interval'),
                 trailing: DropdownButton<int>(
                   value: (app.settings['sampleSeconds'] as num?)?.toInt() ?? 1,
@@ -145,6 +179,23 @@ class SettingsPage extends ConsumerWidget {
               Text(
                 'Files & privacy',
                 style: Theme.of(context).textTheme.titleLarge,
+              ),
+              ListTile(
+                title: const Text('Duplicate minimum size'),
+                trailing: DropdownButton<int>(
+                  value:
+                      (app.settings['duplicateMinBytes'] as num?)?.toInt() ?? 1,
+                  items: [
+                    for (final size in [1, 1024, 1048576])
+                      DropdownMenuItem(
+                        value: size,
+                        child: Text(
+                          size == 1 ? 'All nonempty files' : '$size bytes',
+                        ),
+                      ),
+                  ],
+                  onChanged: (v) => app.set('duplicateMinBytes', v),
+                ),
               ),
               input(
                 'Excluded folder names (comma-separated)',

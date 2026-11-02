@@ -12,6 +12,7 @@ import '../../core/widgets/dashboard_widgets.dart';
 import 'file_service.dart';
 import 'saf_page.dart';
 import 'storage_treemap.dart';
+import 'large_files_page.dart';
 
 class FilesPage extends ConsumerStatefulWidget {
   const FilesPage({super.key});
@@ -109,7 +110,11 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     }
   }
 
-  Future<String?> prompt(String title, {String initial = ''}) async {
+  Future<String?> prompt(
+    String title, {
+    String initial = '',
+    bool secret = false,
+  }) async {
     final input = TextEditingController(text: initial);
     final value = await showDialog<String>(
       context: context,
@@ -117,6 +122,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         title: Text(title),
         content: TextField(
           controller: input,
+          obscureText: secret,
           autofocus: true,
           onSubmitted: (v) => Navigator.pop(context, v),
         ),
@@ -850,7 +856,16 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       (token) => ref
           .read(controllerProvider)
           .files
-          .createZip(paths, safeChild(current!, name), token),
+          .createZip(
+            paths,
+            safeChild(current!, name),
+            token,
+            onProgress: (v) {
+              final app = ref.read(controllerProvider);
+              app.progress = v;
+              app.notifyListeners();
+            },
+          ),
     );
   }
 
@@ -920,43 +935,33 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         initial: p.basenameWithoutExtension(entity.path),
       );
       if (name != null) {
+        final password = await prompt(
+          'ZIP password (leave empty if none)',
+          secret: true,
+        );
+        if (password == null) return;
         await operation(
           'Extract ZIP',
-          (token) =>
-              service.extractZip(entity.path, safeChild(current!, name), token),
+          (token) => service.extractZip(
+            entity.path,
+            safeChild(current!, name),
+            token,
+            password: password.isEmpty ? null : password,
+            onProgress: (v) {
+              final app = ref.read(controllerProvider);
+              app.progress = v;
+              app.notifyListeners();
+            },
+          ),
         );
       }
     }
   }
 
-  Future<void> showLarge(List<IndexedFile> input) async {
-    final list = input.toList()..sort((a, b) => b.size.compareTo(a.size));
-    await showDialog<void>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Files by size'),
-        content: SizedBox(
-          width: 700,
-          height: 500,
-          child: ListView.builder(
-            itemCount: list.length,
-            itemBuilder: (context, i) => ListTile(
-              title: Text(p.basename(list[i].path)),
-              subtitle: Text(list[i].path),
-              trailing: Text(bytes(list[i].size)),
-              onTap: () => OpenFilex.open(list[i].path),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Close'),
-          ),
-        ],
-      ),
-    );
-  }
+  Future<void> showLarge(List<IndexedFile> input) => Navigator.push<void>(
+    context,
+    MaterialPageRoute<void>(builder: (_) => LargeFilesPage(files: input)),
+  );
 
   List<String> breadcrumbs(String path) {
     final output = <String>[path];
