@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,10 +24,13 @@ class _SafPageState extends ConsumerState<SafPage> {
   List<List<Map<dynamic, dynamic>>> groups = [];
   final selected = <String>{};
   String? error;
-  String search = '';
+  String search = '', sort = 'Name', category = 'All';
+  bool grid = false;
   String status = '';
   bool loading = true, busy = false;
   Timer? polling;
+  String documentSize(dynamic size) =>
+      size is num && size >= 0 ? bytes(size) : 'Size unavailable';
   @override
   void initState() {
     super.initState();
@@ -163,6 +167,12 @@ class _SafPageState extends ConsumerState<SafPage> {
 
   Future<void> action(String method, Map<dynamic, dynamic> row) async {
     try {
+      if (method == 'trashMedia') {
+        final response = await native.invoke(method, {'uri': row['uri']});
+        if (mounted) setState(() => status = '$response');
+        await load();
+        return;
+      }
       if (method == 'safOpen' || method == 'safShare') {
         await native.invoke(method, {'uri': row['uri'], 'mime': row['mime']});
         return;
@@ -259,17 +269,29 @@ class _SafPageState extends ConsumerState<SafPage> {
 
   @override
   Widget build(BuildContext context) {
-    final filtered = rows
-        .where(
-          (r) => '${r['name']}'.toLowerCase().contains(search.toLowerCase()),
-        )
-        .toList();
+    final filtered =
+        rows
+            .where(
+              (r) =>
+                  '${r['name']}'.toLowerCase().contains(search.toLowerCase()) &&
+                  (category == 'All' || classify('${r['name']}') == category),
+            )
+            .toList()
+          ..sort(
+            (a, b) => sort == 'Size'
+                ? (b['size'] as num).compareTo(a['size'] as num)
+                : sort == 'Modified'
+                ? (b['modified'] as num).compareTo(a['modified'] as num)
+                : '${a['name']}'.toLowerCase().compareTo(
+                    '${b['name']}'.toLowerCase(),
+                  ),
+          );
     final categories = <String, int>{};
     for (final r in indexed) {
       categories.update(
         classify('${r['name']}'),
-        (v) => v + (r['size'] as num).toInt(),
-        ifAbsent: () => (r['size'] as num).toInt(),
+        (v) => v + (r['size'] as num).toInt().clamp(0, 1 << 62),
+        ifAbsent: () => (r['size'] as num).toInt().clamp(0, 1 << 62),
       );
     }
     return Scaffold(
@@ -286,6 +308,11 @@ class _SafPageState extends ConsumerState<SafPage> {
                   : () => action('safCreateFolder', {'uri': widget.uri}),
               icon: const Icon(Icons.create_new_folder),
             ),
+          IconButton(
+            tooltip: 'List or grid',
+            onPressed: () => setState(() => grid = !grid),
+            icon: Icon(grid ? Icons.view_list : Icons.grid_view),
+          ),
           IconButton(
             tooltip: 'Refresh',
             onPressed: busy ? null : load,
@@ -321,6 +348,33 @@ class _SafPageState extends ConsumerState<SafPage> {
                       ),
                       ActionWrap(
                         children: [
+                          DropdownButton<String>(
+                            value: sort,
+                            items: [
+                              for (final mode in ['Name', 'Size', 'Modified'])
+                                DropdownMenuItem(
+                                  value: mode,
+                                  child: Text(mode),
+                                ),
+                            ],
+                            onChanged: (v) => setState(() => sort = v!),
+                          ),
+                          DropdownButton<String>(
+                            value: category,
+                            items: [
+                              for (final c in [
+                                'All',
+                                'Images',
+                                'Videos',
+                                'Audio',
+                                'Documents',
+                                'Archives',
+                                'Other',
+                              ])
+                                DropdownMenuItem(value: c, child: Text(c)),
+                            ],
+                            onChanged: (v) => setState(() => category = v!),
+                          ),
                           if (widget.media)
                             TextButton(
                               onPressed: busy
@@ -376,7 +430,11 @@ class _SafPageState extends ConsumerState<SafPage> {
                   ),
                 ),
                 Expanded(
-                  child: ListView.builder(
+                  child: GridView.builder(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: grid ? 320 : 10000,
+                      mainAxisExtent: grid ? 140 : 95,
+                    ),
                     itemCount: filtered.length,
                     itemBuilder: (c, i) {
                       final row = filtered[i];
@@ -393,9 +451,25 @@ class _SafPageState extends ConsumerState<SafPage> {
                                       : selected.remove(row['uri']),
                                 ),
                         ),
-                        title: Text('${row['name']}'),
-                        subtitle: Text(
-                          '${row['mime']} · ${bytes(row['size'] as num)}',
+                        title: Text(
+                          '${row['name']}',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        dense: grid,
+                        subtitle: Row(
+                          children: [
+                            if (!directory &&
+                                classify('${row['name']}') == 'Images')
+                              DocumentThumbnail(uri: row['uri'] as String),
+                            Expanded(
+                              child: Text(
+                                '${row['mime']} · ${documentSize(row['size'])}',
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
                         ),
                         onTap: busy
                             ? null
@@ -414,6 +488,11 @@ class _SafPageState extends ConsumerState<SafPage> {
                           itemBuilder: (_) => [
                             for (final entry in [
                               ('safShare', 'Share'),
+                              if (widget.media)
+                                (
+                                  'trashMedia',
+                                  'Move to media trash (Android 11+)',
+                                ),
                               if (!widget.media) ...[
                                 ('copy', 'Copy to folder'),
                                 ('move', 'Move to folder'),
@@ -451,7 +530,7 @@ class _SafPageState extends ConsumerState<SafPage> {
                           ListTile(
                             title: Text('${row['name']}'),
                             subtitle: Text('${row['uri']}'),
-                            trailing: Text(bytes(row['size'] as num)),
+                            trailing: Text(documentSize(row['size'])),
                             onTap: () => action('safOpen', row),
                           ),
                         for (final group in groups.take(100))
@@ -478,6 +557,38 @@ class _SafPageState extends ConsumerState<SafPage> {
                   ),
               ],
             ),
+    );
+  }
+}
+
+class DocumentThumbnail extends StatelessWidget {
+  const DocumentThumbnail({super.key, required this.uri});
+  final String uri;
+  static final _cache = <String, Future<Uint8List?>>{};
+  @override
+  Widget build(BuildContext context) {
+    if (!_cache.containsKey(uri)) {
+      if (_cache.length >= 128) _cache.remove(_cache.keys.first);
+      _cache[uri] = NativeBridge.channel
+          .invokeMethod<Uint8List>('thumbnail', {'uri': uri})
+          .catchError((Object _) => null);
+    }
+    return SizedBox(
+      width: 44,
+      height: 44,
+      child: FutureBuilder<Uint8List?>(
+        future: _cache[uri],
+        builder: (c, s) => s.data == null
+            ? const Icon(Icons.image_outlined)
+            : Image.memory(
+                s.data!,
+                width: 40,
+                height: 40,
+                cacheWidth: 96,
+                errorBuilder: (_, _, _) =>
+                    const Icon(Icons.image_not_supported),
+              ),
+      ),
     );
   }
 }

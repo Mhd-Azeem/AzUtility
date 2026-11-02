@@ -150,3 +150,51 @@ class ActionWrap extends StatelessWidget {
   Widget build(BuildContext context) =>
       Wrap(spacing: 10, runSpacing: 10, children: children);
 }
+
+class DashboardSkeleton extends StatelessWidget {
+  const DashboardSkeleton({super.key});
+  @override
+  Widget build(BuildContext context) {
+    return Semantics(
+      label: 'Loading system information',
+      child: ExcludeSemantics(
+        child: LayoutBuilder(
+          builder: (c, size) {
+            return Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (int i = 0; i < 4; i++)
+                  SizedBox(
+                    width: (size.maxWidth - 8) / 2,
+                    child: Panel(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Container(
+                            height: 12,
+                            width: 90,
+                            color: Theme.of(
+                              c,
+                            ).colorScheme.surfaceContainerHighest,
+                          ),
+                          const SizedBox(height: 20),
+                          Container(
+                            height: 22,
+                            width: 120,
+                            color: Theme.of(
+                              c,
+                            ).colorScheme.surfaceContainerHighest,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}

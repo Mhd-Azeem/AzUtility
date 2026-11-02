@@ -21,6 +21,7 @@ import java.util.zip.ZipOutputStream
 /** Streaming provider operations. No conversion of a content URI to a file path. */
 class DocumentEngine(private val activity: Activity) {
   private val resolver get() = activity.contentResolver
+  private val thumbnails=Executors.newFixedThreadPool(2)
   private val worker = Executors.newSingleThreadExecutor()
   private val main = Handler(Looper.getMainLooper())
   private val cancelled = AtomicBoolean(false)
@@ -34,7 +35,7 @@ class DocumentEngine(private val activity: Activity) {
     val streams=synchronized(active) { active.toList() }
     for(stream in streams) try { stream.close() } catch(_:Exception) {}
   }
-  fun close() { stop(); worker.shutdownNow() }
+  fun close() { stop(); worker.shutdownNow(); thumbnails.shutdownNow() }
   private fun check() { check(!cancelled.get() && !Thread.currentThread().isInterrupted) { "Operation cancelled" } }
   private fun document(uri: Uri): Uri = if (D.isDocumentUri(activity,uri)) uri else D.buildDocumentUriUsingTree(uri,D.getTreeDocumentId(uri))
   private fun name(value: String): String {
@@ -48,7 +49,7 @@ class DocumentEngine(private val activity: Activity) {
     resolver.query(target,arrayOf(D.Document.COLUMN_DOCUMENT_ID,D.Document.COLUMN_DISPLAY_NAME,D.Document.COLUMN_MIME_TYPE,D.Document.COLUMN_SIZE,D.Document.COLUMN_LAST_MODIFIED),null,null,null,signal)?.use { c ->
       while(c.moveToNext()) {
         check(); require(out.size<10000) { "Folder exceeds 10,000 entries; narrow your selection" }
-        out.add(mapOf("uri" to D.buildDocumentUriUsingTree(parent,c.getString(0)).toString(),"name" to c.getString(1),"mime" to c.getString(2),"size" to c.getLong(3),"modified" to c.getLong(4)))
+        out.add(mapOf("uri" to D.buildDocumentUriUsingTree(parent,c.getString(0)).toString(),"name" to c.getString(1),"mime" to c.getString(2),"size" to if(c.isNull(3)) -1L else c.getLong(3),"modified" to c.getLong(4)))
       }
     } ?: error("Provider returned no cursor")
     return out
@@ -56,7 +57,7 @@ class DocumentEngine(private val activity: Activity) {
   private fun metadata(uri: Uri): Map<String,Any?> {
     resolver.query(uri,arrayOf(D.Document.COLUMN_DISPLAY_NAME,D.Document.COLUMN_MIME_TYPE,D.Document.COLUMN_SIZE,D.Document.COLUMN_LAST_MODIFIED),null,null,null,signal)?.use { c ->
       check(c.moveToFirst()) { "Document no longer exists" }
-      return mapOf("uri" to uri.toString(),"name" to c.getString(0),"mime" to c.getString(1),"size" to c.getLong(2),"modified" to c.getLong(3))
+      return mapOf("uri" to uri.toString(),"name" to c.getString(0),"mime" to c.getString(1),"size" to if(c.isNull(2)) -1L else c.getLong(2),"modified" to c.getLong(3))
     }
     error("Document unavailable")
   }
@@ -90,7 +91,7 @@ class DocumentEngine(private val activity: Activity) {
         for(row in children(parent)) {
           check(); if(row["name"] in exclusions) continue
           if(row["mime"] == directory) { require(pending.size<10000) { "Directory queue limit reached" }; pending.add(Uri.parse(row["uri"] as String)) }
-          else { require(files.size<100000) { "100,000-file limit reached; choose a smaller folder" }; files.add(row); total+=(row["size"] as Number).toLong() }
+          else { require(files.size<100000) { "100,000-file limit reached; choose a smaller folder" }; files.add(row); total+=(row["size"] as Number).toLong().coerceAtLeast(0) }
           progress=mapOf("files" to files.size,"bytes" to total,"location" to row["name"],"errors" to errors)
         }
       } catch(e:SecurityException) { errors++ } catch(e:java.io.FileNotFoundException) { errors++ }
@@ -126,7 +127,7 @@ class DocumentEngine(private val activity: Activity) {
       } else {
         val written=input(source).use { i -> output(target).use { o -> transfer(i,o) } }
         val after=metadata(source)
-        require(info["modified"] == after["modified"] && info["size"] == after["size"] && written == (after["size"] as Number).toLong()) { "Source changed during copy; source retained" }
+        require(info["modified"] == after["modified"] && info["size"] == after["size"] && ((after["size"] as Number).toLong()<0 || written == (after["size"] as Number).toLong())) { "Source changed during copy; source retained" }
       }
       progress=mapOf("files" to count[0],"location" to info["name"])
       return target
@@ -173,12 +174,24 @@ class DocumentEngine(private val activity: Activity) {
     val rows=mutableListOf<Map<String,Any?>>()
     for((collection,kind) in listOf(MediaStore.Images.Media.EXTERNAL_CONTENT_URI to "Images",MediaStore.Video.Media.EXTERNAL_CONTENT_URI to "Videos",MediaStore.Audio.Media.EXTERNAL_CONTENT_URI to "Audio")) {
       try { resolver.query(collection,arrayOf("_id","_display_name","mime_type","_size","date_modified"),null,null,"date_modified DESC")?.use { c ->
-        while(c.moveToNext() && rows.size<10000) rows.add(mapOf("uri" to android.content.ContentUris.withAppendedId(collection,c.getLong(0)).toString(),"name" to c.getString(1),"mime" to c.getString(2),"size" to c.getLong(3),"modified" to c.getLong(4)*1000,"category" to kind))
+        while(c.moveToNext() && rows.size<10000) rows.add(mapOf("uri" to android.content.ContentUris.withAppendedId(collection,c.getLong(0)).toString(),"name" to c.getString(1),"mime" to c.getString(2),"size" to if(c.isNull(3)) -1L else c.getLong(3),"modified" to c.getLong(4)*1000,"category" to kind))
       } } catch(_:SecurityException) { /* Permission may cover selected visual media only. */ }
     }
     return rows
   }
   fun handle(call: MethodCall,result: MethodChannel.Result): Boolean {
+    if(call.method=="thumbnail") {
+      thumbnails.execute {
+        try {
+          val bytes=if(android.os.Build.VERSION.SDK_INT>=29) {
+            val image=resolver.loadThumbnail(Uri.parse(call.argument<String>("uri")!!),android.util.Size(96,96),null)
+            try { java.io.ByteArrayOutputStream().use { output -> image.compress(android.graphics.Bitmap.CompressFormat.PNG,90,output); output.toByteArray() } } finally { image.recycle() }
+          } else null
+          main.post { result.success(bytes) }
+        } catch(_:Exception) { main.post { result.success(null) } }
+      }
+      return true
+    }
     if(call.method=="documentProgress") { result.success(progress); return true }
     if(call.method=="cancelDocuments") { stop(); result.success(null); return true }
     if(call.method=="safShare") {

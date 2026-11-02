@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:archive/archive_io.dart';
 import 'package:az_utility/core/database/app_database.dart';
 import 'package:az_utility/core/models.dart';
 import 'package:az_utility/core/reporting/comparison.dart';
@@ -114,6 +115,69 @@ void main() {
         throwsA(isA<Cancelled>()),
       );
       expect(await temp.list().length, 1);
+    },
+  );
+  test(
+    'encrypted ZIP rejects incorrect passwords and cleans staging, then reports extraction progress',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('az-password-');
+      addTearDown(() => temp.delete(recursive: true));
+      final data = [1, 2, 3, 4];
+      final archive = Archive()
+        ..addFile(ArchiveFile('nested/data.bin', data.length, data));
+      final zip = File(p.join(temp.path, 'encrypted.zip'));
+      await zip.writeAsBytes(
+        ZipEncoder(password: 'local-test').encodeBytes(archive),
+      );
+      final service = FileService();
+      final target = p.join(temp.path, 'extracted');
+      await expectLater(
+        service.extractZip(zip.path, target, Cancellation(), password: 'wrong'),
+        throwsA(isA<FormatException>()),
+      );
+      expect(await Directory(target).exists(), false);
+      expect(
+        (await temp.list().toList()).where((f) => f.path.contains('.az-part-')),
+        isEmpty,
+      );
+      final progress = <double>[];
+      await service.extractZip(
+        zip.path,
+        target,
+        Cancellation(),
+        password: 'local-test',
+        onProgress: progress.add,
+      );
+      expect(
+        await File(p.join(target, 'nested', 'data.bin')).readAsBytes(),
+        data,
+      );
+      expect(progress.last, 1);
+    },
+  );
+  test(
+    'incremental directory updates retain untouched index entries',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('az-index-update-');
+      addTearDown(() => temp.delete(recursive: true));
+      final sub = Directory(p.join(temp.path, 'sub'));
+      await sub.create();
+      final rootFile = File(p.join(temp.path, 'root.txt'));
+      await rootFile.writeAsString('first');
+      final subFile = File(p.join(sub.path, 'nested.txt'));
+      await subFile.writeAsString('preserved');
+      final service = FileService();
+      await service.scan(temp.path, Cancellation()).drain<void>();
+      await rootFile.writeAsString('updated content');
+      await service.refreshDirectory(temp.path);
+      expect(
+        service.index.singleWhere((f) => f.path == rootFile.path).size,
+        15,
+      );
+      expect(service.index.singleWhere((f) => f.path == subFile.path).size, 9);
+      await rootFile.delete();
+      await service.refreshDirectory(temp.path);
+      expect(service.index, hasLength(1));
     },
   );
   test(

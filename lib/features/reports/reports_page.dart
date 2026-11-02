@@ -31,14 +31,19 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           (r) =>
               (category == 'all' || r['category'] == category) &&
               (since == null ||
-                  DateTime.parse(r['created'] as String).isAfter(since!)),
+                  !DateTime.parse(r['created'] as String).isBefore(since!)),
         )
         .toList();
     return PageBody(
       title: 'Reports & history',
       subtitle:
-          'Local evidence, measured results and portable exports · Latest 100 records',
+          'Local evidence and portable exports · ${app.history.length} loaded records · Load older records before filtering/exporting older sessions',
       children: [
+        if (app.canLoadMoreHistory)
+          OutlinedButton(
+            onPressed: app.loadMoreHistory,
+            child: const Text('Load 100 older records'),
+          ),
         ActionWrap(
           children: [
             OutlinedButton(

@@ -37,6 +37,7 @@ class MainActivity : FlutterActivity() {
   private var sensorListener: android.hardware.SensorEventListener? = null
   private var sensorValues: List<Map<String,Any?>> = emptyList()
   private val handler = Handler(Looper.getMainLooper())
+  private var mediaResult: MethodChannel.Result? = null
   private var treeResult: MethodChannel.Result? = null
   private var micResult: MethodChannel.Result? = null
   private var recorder: MediaRecorder? = null
@@ -53,6 +54,16 @@ class MainActivity : FlutterActivity() {
       try {
         if(documents.handle(call,result)) return@setMethodCallHandler
         when(call.method) {
+          "trashMedia" -> {
+            if(Build.VERSION.SDK_INT<30) result.error("UNSUPPORTED","MediaStore trash requires Android 11 or later",null)
+            else if(mediaResult!=null) result.error("BUSY","A media confirmation is open",null)
+            else {
+              val pending=android.provider.MediaStore.createTrashRequest(contentResolver,listOf(Uri.parse(call.argument<String>("uri")!!)),true)
+              mediaResult=result
+              try { startIntentSenderForResult(pending.intentSender,705,null,0,0,0) }
+              catch(e:Exception) { mediaResult=null; throw e }
+            }
+          }
           "requestWifiPermission" -> {
             if(permissionResult!=null) result.error("BUSY","Permission request active",null)
             else { permissionResult=result; requestPermissions(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION),703) }
@@ -191,6 +202,7 @@ class MainActivity : FlutterActivity() {
   }
   override fun onActivityResult(requestCode:Int,resultCode:Int,data:Intent?) {
     super.onActivityResult(requestCode,resultCode,data)
+    if(requestCode==705) { mediaResult?.success(if(resultCode==Activity.RESULT_OK) "Media trash request approved" else "Media trash request cancelled"); mediaResult=null }
     if(requestCode==701) { val uri=data?.data; if(resultCode==Activity.RESULT_OK && uri!=null) { try { contentResolver.takePersistableUriPermission(uri,(data?.flags ?: 0) and (Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION)); treeResult?.success(uri.toString()) } catch(e:Exception) { treeResult?.error("PERMISSION",e.message,null) } } else treeResult?.success(null); treeResult=null }
   }
   override fun onRequestPermissionsResult(requestCode:Int,permissions:Array<out String>,grantResults:IntArray) {

@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:path/path.dart' as p;
@@ -28,6 +29,8 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   bool grid = false, descending = false;
   String sort = 'Name';
   final selected = <String>{};
+  List<String> clipboard = [];
+  bool cut = false;
   String? listingError;
   StreamSubscription<FileSystemEvent>? watcher;
   Timer? watchDebounce;
@@ -213,431 +216,484 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       );
     }
     final total = categories.values.fold<int>(0, (a, b) => a + b);
-    return PageBody(
-      title: 'Smart File Manager',
-      subtitle:
-          'Selected accessible folders only · Symlinks are never followed',
-      children: [
-        if (app.droppedPaths.isNotEmpty)
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${app.droppedPaths.length} dropped items ready to review',
-                ),
-                for (final path in app.droppedPaths.take(10)) Text(path),
-                ActionWrap(
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.f5): () => load(),
+        const SingleActivator(LogicalKeyboardKey.arrowUp, alt: true): () {
+          if (current != null && current != app.root) {
+            navigate(p.dirname(current!));
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyA, control: true): () {
+          if (!app.busy) {
+            setState(
+              () => selected.addAll(
+                filtered.where((e) => e is! Link).map((e) => e.path),
+              ),
+            );
+          }
+        },
+        const SingleActivator(LogicalKeyboardKey.keyC, control: true): () {
+          clipboard = selected.toList();
+          cut = false;
+        },
+        const SingleActivator(LogicalKeyboardKey.keyX, control: true): () {
+          clipboard = selected.toList();
+          cut = true;
+        },
+        const SingleActivator(LogicalKeyboardKey.keyV, control: true): () =>
+            paste(),
+        const SingleActivator(LogicalKeyboardKey.delete): () {
+          if (!app.busy && selected.isNotEmpty) remove();
+        },
+        const SingleActivator(LogicalKeyboardKey.f2): () {
+          if (!app.busy && selected.length == 1) {
+            final entry = entries
+                .where((e) => e.path == selected.single)
+                .firstOrNull;
+            if (entry != null) fileAction('Rename', entry);
+          }
+        },
+      },
+      child: Focus(
+        autofocus: true,
+        child: PageBody(
+          title: 'Smart File Manager',
+          subtitle:
+              'Selected accessible folders only · Symlinks are never followed',
+          children: [
+            if (app.droppedPaths.isNotEmpty)
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    OutlinedButton(
-                      onPressed: app.busy || current == null
-                          ? null
-                          : () async {
-                              final paths = app.droppedPaths.toList();
-                              final yes = await showDialog<bool>(
-                                context: context,
-                                builder: (c) => AlertDialog(
-                                  title: const Text('Copy dropped items?'),
-                                  content: Text(
-                                    '${paths.length} items → $current\nExisting names will be rejected.',
-                                  ),
-                                  actions: [
-                                    TextButton(
-                                      onPressed: () => Navigator.pop(c, false),
-                                      child: const Text('Cancel'),
+                    Text(
+                      '${app.droppedPaths.length} dropped items ready to review',
+                    ),
+                    for (final path in app.droppedPaths.take(10)) Text(path),
+                    ActionWrap(
+                      children: [
+                        OutlinedButton(
+                          onPressed: app.busy || current == null
+                              ? null
+                              : () async {
+                                  final paths = app.droppedPaths.toList();
+                                  final yes = await showDialog<bool>(
+                                    context: context,
+                                    builder: (c) => AlertDialog(
+                                      title: const Text('Copy dropped items?'),
+                                      content: Text(
+                                        '${paths.length} items → $current\nExisting names will be rejected.',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(c, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        FilledButton(
+                                          onPressed: () =>
+                                              Navigator.pop(c, true),
+                                          child: const Text('Copy'),
+                                        ),
+                                      ],
                                     ),
-                                    FilledButton(
-                                      onPressed: () => Navigator.pop(c, true),
-                                      child: const Text('Copy'),
-                                    ),
-                                  ],
-                                ),
-                              );
-                              if (yes == true) {
-                                await operation('Copy dropped items', (
-                                  token,
-                                ) async {
-                                  for (final path in paths) {
-                                    await app.files.copy(
-                                      path,
-                                      safeChild(current!, p.basename(path)),
+                                  );
+                                  if (yes == true) {
+                                    await operation('Copy dropped items', (
                                       token,
-                                    );
+                                    ) async {
+                                      for (final path in paths) {
+                                        await app.files.copy(
+                                          path,
+                                          safeChild(current!, p.basename(path)),
+                                          token,
+                                        );
+                                      }
+                                    });
+                                    app.droppedPaths.clear();
+                                    app.notifyListeners();
                                   }
-                                });
+                                },
+                          child: const Text('Copy into current folder'),
+                        ),
+                        if (app.droppedPaths.length == 1)
+                          TextButton(
+                            onPressed: () async {
+                              final path = app.droppedPaths.single;
+                              if (await Directory(path).exists()) {
+                                app.root = path;
+                                await navigate(path);
                                 app.droppedPaths.clear();
                                 app.notifyListeners();
                               }
                             },
-                      child: const Text('Copy into current folder'),
-                    ),
-                    if (app.droppedPaths.length == 1)
-                      TextButton(
-                        onPressed: () async {
-                          final path = app.droppedPaths.single;
-                          if (await Directory(path).exists()) {
-                            app.root = path;
-                            await navigate(path);
+                            child: const Text('Open dropped folder'),
+                          ),
+                        TextButton(
+                          onPressed: () {
                             app.droppedPaths.clear();
                             app.notifyListeners();
-                          }
-                        },
-                        child: const Text('Open dropped folder'),
-                      ),
-                    TextButton(
-                      onPressed: () {
-                        app.droppedPaths.clear();
-                        app.notifyListeners();
-                      },
-                      child: const Text('Dismiss'),
+                          },
+                          child: const Text('Dismiss'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ],
-            ),
-          ),
-        if (Platform.isAndroid)
-          ActionWrap(
-            children: [
-              OutlinedButton(
-                onPressed: () => Navigator.push(
-                  context,
-                  MaterialPageRoute<void>(
-                    builder: (_) => const SafPage(uri: '', media: true),
+              ),
+            if (Platform.isAndroid)
+              ActionWrap(
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SafPage(uri: '', media: true),
+                      ),
+                    ),
+                    child: const Text('Media library'),
+                  ),
+                  if (app.settings['lastSafTree'] is String)
+                    OutlinedButton(
+                      onPressed: () => Navigator.push(
+                        context,
+                        MaterialPageRoute<void>(
+                          builder: (_) => SafPage(
+                            uri: app.settings['lastSafTree'] as String,
+                          ),
+                        ),
+                      ),
+                      child: const Text('Reopen granted folder'),
+                    ),
+                ],
+              ),
+            if (total > 0)
+              Panel(
+                child: StorageTreemap(
+                  categories: categories,
+                  onSelect: (category) => showLarge(
+                    app.files.index
+                        .where((file) => file.category == category)
+                        .toList(),
                   ),
                 ),
-                child: const Text('Media library'),
               ),
-              if (app.settings['lastSafTree'] is String)
+            ActionWrap(
+              children: [
+                FilledButton.icon(
+                  onPressed: app.busy ? null : choose,
+                  icon: const Icon(Icons.folder_open),
+                  label: const Text('Choose folder'),
+                ),
                 OutlinedButton(
-                  onPressed: () => Navigator.push(
-                    context,
-                    MaterialPageRoute<void>(
-                      builder: (_) =>
-                          SafPage(uri: app.settings['lastSafTree'] as String),
-                    ),
-                  ),
-                  child: const Text('Reopen granted folder'),
+                  onPressed: app.busy || app.root == null ? null : app.scan,
+                  child: const Text('Scan folder'),
                 ),
-            ],
-          ),
-        if (total > 0)
-          Panel(
-            child: StorageTreemap(
-              categories: categories,
-              onSelect: (category) => showLarge(
-                app.files.index
-                    .where((file) => file.category == category)
-                    .toList(),
-              ),
-            ),
-          ),
-        ActionWrap(
-          children: [
-            FilledButton.icon(
-              onPressed: app.busy ? null : choose,
-              icon: const Icon(Icons.folder_open),
-              label: const Text('Choose folder'),
-            ),
-            OutlinedButton(
-              onPressed: app.busy || app.root == null ? null : app.scan,
-              child: const Text('Scan folder'),
-            ),
-            OutlinedButton(
-              onPressed: app.busy || app.files.index.isEmpty
-                  ? null
-                  : app.findDuplicates,
-              child: const Text('Find duplicates'),
-            ),
-            OutlinedButton(
-              onPressed: app.files.index.isEmpty
-                  ? null
-                  : () => showLarge(app.files.index),
-              child: const Text('Largest files'),
-            ),
-          ],
-        ),
-        if (Platform.isAndroid)
-          const Panel(
-            child: Text(
-              'Android scoped storage applies. This browser only uses readable selected paths. For document-provider folders, use the SAF browser below; no access to other apps’ private data is requested.',
-            ),
-          ),
-        if (Platform.isAndroid)
-          OutlinedButton(
-            onPressed: () => openSaf(),
-            child: const Text('Open Android document-provider folder (SAF)'),
-          ),
-        if (total > 0)
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Indexed coverage: ${app.files.index.length} files · ${bytes(total)}',
+                OutlinedButton(
+                  onPressed: app.busy || app.files.index.isEmpty
+                      ? null
+                      : app.findDuplicates,
+                  child: const Text('Find duplicates'),
                 ),
-                const Text(
-                  'This is the selected scan subset, not whole-volume capacity.',
+                OutlinedButton(
+                  onPressed: app.files.index.isEmpty
+                      ? null
+                      : () => showLarge(app.files.index),
+                  child: const Text('Largest files'),
                 ),
-                SizedBox(
-                  height: 160,
-                  child: PieChart(
-                    PieChartData(
-                      sections: [
-                        for (int i = 0; i < categories.length; i++)
-                          PieChartSectionData(
-                            value: categories.values.elementAt(i).toDouble(),
-                            title: categories.keys.elementAt(i),
-                            radius: 40,
-                            color:
-                                Colors.primaries[i % Colors.primaries.length],
-                          ),
-                      ],
-                      centerSpaceRadius: 40,
-                      pieTouchData: PieTouchData(
-                        touchCallback: (event, response) {
-                          final i =
-                              response?.touchedSection?.touchedSectionIndex;
-                          if (event.isInterestedForInteractions &&
-                              i != null &&
-                              i >= 0 &&
-                              i < categories.length) {
-                            setState(
-                              () => category = categories.keys.elementAt(i),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                  ),
-                ),
-                for (final entry in categories.entries)
-                  ListTile(
-                    title: Text(entry.key),
-                    trailing: Text(bytes(entry.value)),
-                    onTap: () => showLarge(
-                      app.files.index
-                          .where((f) => f.category == entry.key)
-                          .toList(),
-                    ),
-                  ),
               ],
             ),
-          ),
-        if (current == null)
-          const Panel(
-            child: Padding(
-              padding: EdgeInsets.all(24),
-              child: Text(
-                'Choose a folder to browse real files. Scans are read-only. File changes always require an explicit action.',
+            if (Platform.isAndroid)
+              const Panel(
+                child: Text(
+                  'Android scoped storage applies. This browser only uses readable selected paths. For document-provider folders, use the SAF browser below; no access to other apps’ private data is requested.',
+                ),
               ),
-            ),
-          )
-        else
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
+            if (Platform.isAndroid)
+              OutlinedButton(
+                onPressed: () => openSaf(),
+                child: const Text(
+                  'Open Android document-provider folder (SAF)',
+                ),
+              ),
+            if (total > 0)
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    IconButton(
-                      tooltip: 'Parent folder',
-                      onPressed: current == app.root
-                          ? null
-                          : () => navigate(p.dirname(current!)),
-                      icon: const Icon(Icons.arrow_upward),
+                    Text(
+                      'Indexed coverage: ${app.files.index.length} files · ${bytes(total)}',
                     ),
-                    Expanded(child: SelectableText(current!)),
-                    IconButton(
-                      tooltip: 'Refresh',
-                      onPressed: load,
-                      icon: const Icon(Icons.refresh),
+                    const Text(
+                      'This is the selected scan subset, not whole-volume capacity.',
                     ),
-                    IconButton(
-                      tooltip: 'Grid or list',
-                      onPressed: () {
-                        setState(() => grid = !grid);
-                        app.set('fileGrid', grid);
-                      },
-                      icon: Icon(grid ? Icons.view_list : Icons.grid_view),
-                    ),
-                  ],
-                ),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final path in breadcrumbs(current!))
-                        TextButton(
-                          onPressed: () => navigate(path),
-                          child: Text(
-                            p.basename(path).isEmpty ? path : p.basename(path),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                TextField(
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'Search this folder',
-                  ),
-                  onChanged: (v) => setState(() => search = v),
-                ),
-                ActionWrap(
-                  children: [
-                    DropdownButton<String>(
-                      value: category,
-                      items: [
-                        for (final c in [
-                          'All',
-                          'Images',
-                          'Videos',
-                          'Audio',
-                          'Documents',
-                          'Archives',
-                          'Other',
-                        ])
-                          DropdownMenuItem(value: c, child: Text(c)),
-                      ],
-                      onChanged: (v) => setState(() => category = v!),
-                    ),
-                    TextButton(
-                      onPressed: () => setState(() => descending = !descending),
-                      child: Text(descending ? 'Descending' : 'Ascending'),
-                    ),
-                    DropdownButton<String>(
-                      value: sort,
-                      items: [
-                        for (final mode in ['Name', 'Size', 'Modified'])
-                          DropdownMenuItem(value: mode, child: Text(mode)),
-                      ],
-                      onChanged: (value) {
-                        setState(() => sort = value!);
-                        app.set('fileSort', value);
-                      },
-                    ),
-                    TextButton(
-                      onPressed: app.busy ? null : () => newFolder(),
-                      child: const Text('New folder'),
-                    ),
-                    if (selected.isNotEmpty) ...[
-                      Text('${selected.length} selected'),
-                      TextButton(
-                        onPressed: app.busy ? null : () => transfer(false),
-                        child: const Text('Copy'),
-                      ),
-                      TextButton(
-                        onPressed: app.busy ? null : () => transfer(true),
-                        child: const Text('Move'),
-                      ),
-                      TextButton(
-                        onPressed:
-                            app.busy ||
-                                selected.any(
-                                  (path) => Directory(path).existsSync(),
-                                )
-                            ? null
-                            : zip,
-                        child: const Text('Create ZIP'),
-                      ),
-                      TextButton(
-                        onPressed: app.busy ? null : remove,
-                        child: const Text('Delete'),
-                      ),
-                    ],
-                  ],
-                ),
-                if (listingError != null)
-                  Text(
-                    listingError!,
-                    style: TextStyle(
-                      color: Theme.of(context).colorScheme.error,
-                    ),
-                  ),
-                if (filtered.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.all(24),
-                    child: Text('No accessible matching entries.'),
-                  ),
-                SizedBox(
-                  height: 480,
-                  child: grid
-                      ? GridView.builder(
-                          gridDelegate:
-                              SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 200,
-                                mainAxisExtent: 150,
+                    SizedBox(
+                      height: 160,
+                      child: PieChart(
+                        PieChartData(
+                          sections: [
+                            for (int i = 0; i < categories.length; i++)
+                              PieChartSectionData(
+                                value: categories.values
+                                    .elementAt(i)
+                                    .toDouble(),
+                                title: categories.keys.elementAt(i),
+                                radius: 40,
+                                color: Colors
+                                    .primaries[i % Colors.primaries.length],
                               ),
-                          itemCount: filtered.length,
-                          itemBuilder: (context, i) =>
-                              fileTile(filtered[i], true),
-                        )
-                      : ListView.builder(
-                          itemCount: filtered.length,
-                          itemBuilder: (context, i) =>
-                              fileTile(filtered[i], false),
+                          ],
+                          centerSpaceRadius: 40,
+                          pieTouchData: PieTouchData(
+                            touchCallback: (event, response) {
+                              final i =
+                                  response?.touchedSection?.touchedSectionIndex;
+                              if (event.isInterestedForInteractions &&
+                                  i != null &&
+                                  i >= 0 &&
+                                  i < categories.length) {
+                                setState(
+                                  () => category = categories.keys.elementAt(i),
+                                );
+                              }
+                            },
+                          ),
                         ),
-                ),
-              ],
-            ),
-          ),
-        if (app.files.index.isNotEmpty)
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text('Folder size ranking · indexed subset'),
-                ...folderRanking(app.files.index)
-                    .take(20)
-                    .map(
-                      (entry) => ListTile(
+                      ),
+                    ),
+                    for (final entry in categories.entries)
+                      ListTile(
                         title: Text(entry.key),
                         trailing: Text(bytes(entry.value)),
                         onTap: () => showLarge(
                           app.files.index
-                              .where((f) => p.dirname(f.path) == entry.key)
+                              .where((f) => f.category == entry.key)
                               .toList(),
                         ),
                       ),
-                    ),
-              ],
-            ),
-          ),
-        if (app.duplicateGroups.isNotEmpty)
-          Panel(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'Verified SHA-256 duplicate groups — review copies before deleting',
+                  ],
                 ),
-                for (final group in app.duplicateGroups.take(100))
-                  ExpansionTile(
-                    title: Text(
-                      '${group.length} copies · ${bytes(group.first.size * (group.length - 1))} potentially reclaimable',
+              ),
+            if (current == null)
+              const Panel(
+                child: Padding(
+                  padding: EdgeInsets.all(24),
+                  child: Text(
+                    'Choose a folder to browse real files. Scans are read-only. File changes always require an explicit action.',
+                  ),
+                ),
+              )
+            else
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        IconButton(
+                          tooltip: 'Parent folder',
+                          onPressed: current == app.root
+                              ? null
+                              : () => navigate(p.dirname(current!)),
+                          icon: const Icon(Icons.arrow_upward),
+                        ),
+                        Expanded(child: SelectableText(current!)),
+                        IconButton(
+                          tooltip: 'Refresh',
+                          onPressed: load,
+                          icon: const Icon(Icons.refresh),
+                        ),
+                        IconButton(
+                          tooltip: 'Grid or list',
+                          onPressed: () {
+                            setState(() => grid = !grid);
+                            app.set('fileGrid', grid);
+                          },
+                          icon: Icon(grid ? Icons.view_list : Icons.grid_view),
+                        ),
+                      ],
                     ),
-                    children: [
-                      for (final file in group)
-                        ListTile(
-                          leading: Checkbox(
-                            value: selected.contains(file.path),
-                            onChanged: (v) => setState(
-                              () => v == true
-                                  ? selected.add(file.path)
-                                  : selected.remove(file.path),
+                    SingleChildScrollView(
+                      scrollDirection: Axis.horizontal,
+                      child: Row(
+                        children: [
+                          for (final path in breadcrumbs(current!))
+                            TextButton(
+                              onPressed: () => navigate(path),
+                              child: Text(
+                                p.basename(path).isEmpty
+                                    ? path
+                                    : p.basename(path),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    TextField(
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        hintText: 'Search this folder',
+                      ),
+                      onChanged: (v) => setState(() => search = v),
+                    ),
+                    ActionWrap(
+                      children: [
+                        DropdownButton<String>(
+                          value: category,
+                          items: [
+                            for (final c in [
+                              'All',
+                              'Images',
+                              'Videos',
+                              'Audio',
+                              'Documents',
+                              'Archives',
+                              'Other',
+                            ])
+                              DropdownMenuItem(value: c, child: Text(c)),
+                          ],
+                          onChanged: (v) => setState(() => category = v!),
+                        ),
+                        TextButton(
+                          onPressed: () =>
+                              setState(() => descending = !descending),
+                          child: Text(descending ? 'Descending' : 'Ascending'),
+                        ),
+                        DropdownButton<String>(
+                          value: sort,
+                          items: [
+                            for (final mode in ['Name', 'Size', 'Modified'])
+                              DropdownMenuItem(value: mode, child: Text(mode)),
+                          ],
+                          onChanged: (value) {
+                            setState(() => sort = value!);
+                            app.set('fileSort', value);
+                          },
+                        ),
+                        TextButton(
+                          onPressed: app.busy ? null : () => newFolder(),
+                          child: const Text('New folder'),
+                        ),
+                        if (selected.isNotEmpty) ...[
+                          Text('${selected.length} selected'),
+                          TextButton(
+                            onPressed: app.busy ? null : () => transfer(false),
+                            child: const Text('Copy'),
+                          ),
+                          TextButton(
+                            onPressed: app.busy ? null : () => transfer(true),
+                            child: const Text('Move'),
+                          ),
+                          TextButton(
+                            onPressed:
+                                app.busy ||
+                                    selected.any(
+                                      (path) => Directory(path).existsSync(),
+                                    )
+                                ? null
+                                : zip,
+                            child: const Text('Create ZIP'),
+                          ),
+                          TextButton(
+                            onPressed: app.busy ? null : remove,
+                            child: const Text('Delete'),
+                          ),
+                        ],
+                      ],
+                    ),
+                    if (listingError != null)
+                      Text(
+                        listingError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    if (filtered.isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.all(24),
+                        child: Text('No accessible matching entries.'),
+                      ),
+                    SizedBox(
+                      height: 480,
+                      child: grid
+                          ? GridView.builder(
+                              gridDelegate:
+                                  SliverGridDelegateWithMaxCrossAxisExtent(
+                                    maxCrossAxisExtent: 200,
+                                    mainAxisExtent: 150,
+                                  ),
+                              itemCount: filtered.length,
+                              itemBuilder: (context, i) =>
+                                  fileTile(filtered[i], true),
+                            )
+                          : ListView.builder(
+                              itemCount: filtered.length,
+                              itemBuilder: (context, i) =>
+                                  fileTile(filtered[i], false),
+                            ),
+                    ),
+                  ],
+                ),
+              ),
+            if (app.files.index.isNotEmpty)
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Folder size ranking · indexed subset'),
+                    ...folderRanking(app.files.index)
+                        .take(20)
+                        .map(
+                          (entry) => ListTile(
+                            title: Text(entry.key),
+                            trailing: Text(bytes(entry.value)),
+                            onTap: () => showLarge(
+                              app.files.index
+                                  .where((f) => p.dirname(f.path) == entry.key)
+                                  .toList(),
                             ),
                           ),
-                          title: Text(p.basename(file.path)),
-                          subtitle: Text(file.path),
-                          onTap: () => OpenFilex.open(file.path),
                         ),
-                    ],
-                  ),
-              ],
-            ),
-          ),
-      ],
+                  ],
+                ),
+              ),
+            if (app.duplicateGroups.isNotEmpty)
+              Panel(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'Verified SHA-256 duplicate groups — review copies before deleting',
+                    ),
+                    for (final group in app.duplicateGroups.take(100))
+                      ExpansionTile(
+                        title: Text(
+                          '${group.length} copies · ${bytes(group.first.size * (group.length - 1))} potentially reclaimable',
+                        ),
+                        children: [
+                          for (final file in group)
+                            ListTile(
+                              leading: Checkbox(
+                                value: selected.contains(file.path),
+                                onChanged: (v) => setState(
+                                  () => v == true
+                                      ? selected.add(file.path)
+                                      : selected.remove(file.path),
+                                ),
+                              ),
+                              title: Text(p.basename(file.path)),
+                              subtitle: Text(file.path),
+                              onTap: () => OpenFilex.open(file.path),
+                            ),
+                        ],
+                      ),
+                  ],
+                ),
+              ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -804,6 +860,47 @@ class _FilesPageState extends ConsumerState<FilesPage> {
         (_) => Directory(safeChild(current!, name)).create(),
       );
     }
+  }
+
+  Future<void> paste() async {
+    final app = ref.read(controllerProvider);
+    if (app.busy || current == null || clipboard.isEmpty) return;
+    final targets = clipboard.toList();
+    final destination = current!;
+    final moving = cut;
+    final yes = await showDialog<bool>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: Text('${moving ? 'Move' : 'Copy'} ${targets.length} items?'),
+        content: Text(
+          'Destination: $destination\nExisting names will be rejected. Original items are removed only after copying succeeds when moving.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(c, true),
+            child: const Text('Continue'),
+          ),
+        ],
+      ),
+    );
+    if (yes != true) return;
+    await operation(moving ? 'Move clipboard items' : 'Copy clipboard items', (
+      token,
+    ) async {
+      for (final path in targets) {
+        await app.files.copy(
+          path,
+          safeChild(destination, p.basename(path)),
+          token,
+          move: moving,
+        );
+      }
+    });
+    if (moving && app.error == null) clipboard.clear();
   }
 
   Future<void> transfer(bool move) async {

@@ -39,6 +39,7 @@ class HomePage extends ConsumerWidget {
       subtitle:
           '${DateTime.now().toLocal().toString().substring(0, 16)} · ${Platform.operatingSystem} · Private by design',
       children: [
+        if (app.metrics.isEmpty) const DashboardSkeleton(),
         MetricGrid(metrics: [Metric('Connection', connection), ...overview]),
         LayoutBuilder(
           builder: (context, c) => Wrap(

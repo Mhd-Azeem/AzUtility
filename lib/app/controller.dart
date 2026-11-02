@@ -43,6 +43,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Map<String, dynamic> settings = {};
   List<Metric> metrics = [];
   List<Map<String, dynamic>> history = [];
+  int _historyLimit = 100;
+  bool canLoadMoreHistory = true;
+  Future<void> loadMoreHistory() async {
+    _historyLimit = (_historyLimit + 100).clamp(100, 1500);
+    await refresh();
+  }
+
   final samples = ListQueue<NetworkSample>();
   final metricHistory = <String, ListQueue<double>>{};
   List<List<IndexedFile>> duplicateGroups = [];
@@ -139,7 +146,9 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
 
   Future<void> refresh() async {
     try {
-      history = await db.history();
+      history = await db.history(limit: _historyLimit);
+      canLoadMoreHistory =
+          history.length == _historyLimit && _historyLimit < 1500;
     } catch (e) {
       error = 'Local history is unavailable: $e';
     }

@@ -29,6 +29,7 @@ void main() {
         'x64',
       );
     }
+    await tester.ensureVisible(find.text('AZ Device Doctor'));
     await tester.tap(find.text('AZ Device Doctor'));
     await tester.pumpAndSettle();
     expect(find.text('Full hardware inventory'), findsOneWidget);
