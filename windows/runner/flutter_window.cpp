@@ -27,6 +27,7 @@ bool FlutterWindow::OnCreate() {
   RegisterPlugins(flutter_controller_->engine());
   native_channel_ = az::Register(flutter_controller_->engine());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
+  DragAcceptFiles(GetHandle(), TRUE);
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
     this->Show();
@@ -41,6 +42,7 @@ bool FlutterWindow::OnCreate() {
 }
 
 void FlutterWindow::OnDestroy() {
+  az::FinishMic("Application closing");
   native_channel_.reset();
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
@@ -64,6 +66,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
 
   switch (message) {
+    case WM_DROPFILES: {
+      HDROP drop=reinterpret_cast<HDROP>(wparam);
+      UINT count=DragQueryFileW(drop,0xffffffff,nullptr,0);
+      flutter::EncodableList paths;
+      for(UINT i=0;i<count && i<1000;i++) {
+        UINT n=DragQueryFileW(drop,i,nullptr,0); std::wstring path(n+1,L'\0');
+        DragQueryFileW(drop,i,path.data(),n+1); path.resize(n); paths.emplace_back(az::Utf8(path));
+      }
+      DragFinish(drop);
+      if(native_channel_) native_channel_->InvokeMethod("filesDropped",std::make_unique<flutter::EncodableValue>(paths));
+      return 0;
+    }
     case WM_GETMINMAXINFO: {
       auto limits = reinterpret_cast<MINMAXINFO*>(lparam);
       limits->ptMinTrackSize.x = 720;

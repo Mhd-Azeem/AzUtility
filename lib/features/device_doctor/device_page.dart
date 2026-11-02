@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import 'sensor_page.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/controller.dart';
@@ -12,9 +14,17 @@ class DevicePage extends ConsumerWidget {
     return PageBody(
       title: 'Device Doctor',
       subtitle:
-          'Live native observations · Refreshes every five seconds · No arbitrary health score',
+          'Live native observations · ${app.settings['refreshSeconds'] ?? 5} second refresh · No arbitrary health score',
       children: [
-        MetricGrid(metrics: app.metrics),
+        MetricGrid(
+          metrics: app.metrics,
+          onTap: (metric) => Navigator.push(
+            context,
+            MaterialPageRoute<void>(
+              builder: (_) => MetricDetail(label: metric.label),
+            ),
+          ),
+        ),
         if (app.metricHistory.isNotEmpty)
           Panel(
             child: DefaultTabController(
@@ -86,7 +96,16 @@ class DevicePage extends ConsumerWidget {
                   OutlinedButton.icon(
                     onPressed: () => Navigator.of(context).push(
                       MaterialPageRoute<void>(
-                        builder: (_) => const DisplayTest(),
+                        builder: (_) => DisplayTest(
+                          onResult: (outcome) async {
+                            await app.db.save(
+                              'device',
+                              'Screen & touch manual outcome',
+                              outcome,
+                            );
+                            await app.refresh();
+                          },
+                        ),
                       ),
                     ),
                     icon: const Icon(Icons.display_settings),
@@ -104,6 +123,15 @@ class DevicePage extends ConsumerWidget {
                           : () => nativeTest(context, ref, entry.$1, entry.$2),
                       child: Text(entry.$2),
                     ),
+                  OutlinedButton(
+                    onPressed: () => Navigator.push(
+                      context,
+                      MaterialPageRoute<void>(
+                        builder: (_) => const SensorPage(),
+                      ),
+                    ),
+                    child: const Text('Live sensor test'),
+                  ),
                   OutlinedButton(
                     onPressed: app.busy
                         ? null
@@ -191,13 +219,16 @@ class DevicePage extends ConsumerWidget {
 }
 
 class DisplayTest extends StatefulWidget {
-  const DisplayTest({super.key});
+  const DisplayTest({super.key, this.onResult});
+  final Future<void> Function(Map<String, dynamic>)? onResult;
   @override
   State<DisplayTest> createState() => _DisplayTestState();
 }
 
 class _DisplayTestState extends State<DisplayTest> {
   int color = 0;
+  final viewed = <int>{0};
+  bool saving = false;
   final points = <Offset>[];
   @override
   Widget build(BuildContext context) {
@@ -212,9 +243,30 @@ class _DisplayTestState extends State<DisplayTest> {
       appBar: AppBar(
         title: const Text('Screen & touch test'),
         actions: [
+          PopupMenuButton<String>(
+            tooltip: 'Save manual result',
+            enabled: !saving,
+            onSelected: (outcome) async {
+              setState(() => saving = true);
+              await widget.onResult?.call({
+                'outcome': outcome,
+                'assessment':
+                    'User-reported; not an automated pixel or touch certification',
+                'colorsViewed': viewed.length,
+                'touchPointsRetained': points.length,
+              });
+              if (context.mounted) Navigator.pop(context);
+            },
+            itemBuilder: (_) => [
+              for (final outcome in ['Pass', 'Issue observed', 'Not assessed'])
+                PopupMenuItem(value: outcome, child: Text('Save: $outcome')),
+            ],
+          ),
           TextButton(
-            onPressed: () =>
-                setState(() => color = (color + 1) % colors.length),
+            onPressed: () => setState(() {
+              color = (color + 1) % colors.length;
+              viewed.add(color);
+            }),
             child: const Text('Next color'),
           ),
           TextButton(
@@ -257,4 +309,65 @@ class _TouchPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_TouchPainter old) => true;
+}
+
+class MetricDetail extends ConsumerWidget {
+  const MetricDetail({super.key, required this.label});
+  final String label;
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final app = ref.watch(controllerProvider);
+    final metric = app.metrics.where((m) => m.label == label).firstOrNull;
+    return Scaffold(
+      appBar: AppBar(title: Text(label)),
+      body: PageBody(
+        title: label,
+        subtitle: 'Current native observation and local history',
+        children: [
+          if (metric != null)
+            MetricGrid(metrics: [metric])
+          else
+            const Panel(
+              child: Text(
+                'Temporarily unavailable: this metric is absent from the current snapshot.',
+              ),
+            ),
+          if (app.metricHistory[label] != null)
+            Panel(
+              child: Column(
+                children: [
+                  LatencyChart(values: app.metricHistory[label]!.toList()),
+                  const Text(
+                    'Percent · evenly sampled foreground observations; time gaps may occur when the app is paused.',
+                  ),
+                ],
+              ),
+            ),
+          const Panel(
+            child: Text(
+              'System RAM includes operating-system caches; application resident memory belongs only to AZ Utility. Storage free space may differ from space available to this user. Android process CPU is measured against one logical core and may exceed 100% across multiple cores. Battery condition is the platform status, not a battery-wear estimate.',
+            ),
+          ),
+          for (final related in app.metrics.where(
+            (m) =>
+                m.label != label &&
+                (m.label.toLowerCase().contains(
+                  label.toLowerCase().contains('battery')
+                      ? 'battery'
+                      : label.toLowerCase().contains('ram')
+                      ? 'memory'
+                      : label.toLowerCase().contains('cpu')
+                      ? 'processor'
+                      : 'volume',
+                )),
+          ))
+            ListTile(title: Text(related.label), subtitle: Text(related.value)),
+          OutlinedButton(
+            onPressed: app.refreshMetrics,
+            child: const Text('Refresh'),
+          ),
+        ],
+      ),
+    );
+  }
 }

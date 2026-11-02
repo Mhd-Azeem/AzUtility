@@ -21,7 +21,7 @@ class AppDatabase extends GeneratedDatabase {
   }
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
   @override
   Iterable<TableInfo<Table, dynamic>> get allTables => const [];
   @override
@@ -39,10 +39,15 @@ class AppDatabase extends GeneratedDatabase {
         'CREATE INDEX records_category_date ON records(category, created DESC)',
       );
       await _createIndexTable();
+      await _createMonitoring();
     },
     onUpgrade: (_, from, to) async {
       if (from < 2) await _createIndexTable();
+      if (from < 3) await _createMonitoring();
     },
+  );
+  Future<void> _createMonitoring() => customStatement(
+    'CREATE TABLE monitor_samples (created TEXT NOT NULL, label TEXT NOT NULL, ratio REAL NOT NULL)',
   );
   Future<void> _createIndexTable() => customStatement(
     'CREATE TABLE indexed_files (path TEXT PRIMARY KEY, size INTEGER NOT NULL, modified TEXT NOT NULL, category TEXT NOT NULL)',
@@ -79,6 +84,51 @@ class AppDatabase extends GeneratedDatabase {
     'INSERT OR REPLACE INTO settings(key,value) VALUES (?,?)',
     [key, jsonEncode(value)],
   );
+  Future<void> resetSettings() => customStatement('DELETE FROM settings');
+
+  Future<void> prune(int days, {DateTime? now}) async {
+    if (days < 1 || days > 3650) {
+      throw ArgumentError('Invalid retention period');
+    }
+    await customStatement('DELETE FROM records WHERE created < ?', [
+      (now ?? DateTime.now())
+          .toUtc()
+          .subtract(Duration(days: days))
+          .toIso8601String(),
+    ]);
+    await customStatement('DELETE FROM monitor_samples WHERE created < ?', [
+      (now ?? DateTime.now())
+          .toUtc()
+          .subtract(Duration(days: days))
+          .toIso8601String(),
+    ]);
+  }
+
+  Future<void> saveMonitoring(List<Metric> metrics) => transaction(() async {
+    for (final metric in metrics.where((m) => m.ratio != null)) {
+      await customStatement('INSERT INTO monitor_samples VALUES (?,?,?)', [
+        DateTime.now().toUtc().toIso8601String(),
+        metric.label,
+        metric.ratio,
+      ]);
+    }
+    await customStatement(
+      'DELETE FROM monitor_samples WHERE rowid NOT IN (SELECT rowid FROM monitor_samples ORDER BY rowid DESC LIMIT 10000)',
+    );
+  });
+
+  Future<List<Map<String, dynamic>>> monitoring() async =>
+      (await customSelect(
+            'SELECT * FROM monitor_samples ORDER BY rowid DESC LIMIT 10000',
+          ).get())
+          .map(
+            (r) => {
+              'created': r.read<String>('created'),
+              'label': r.read<String>('label'),
+              'ratio': r.read<double>('ratio'),
+            },
+          )
+          .toList();
   Future<void> save(String category, String title, dynamic payload) async {
     await customStatement(
       'INSERT INTO records(category,title,created,payload) VALUES (?,?,?,?)',
@@ -122,5 +172,8 @@ class AppDatabase extends GeneratedDatabase {
   Future<void> clear(String category) => transaction(() async {
     await customStatement('DELETE FROM records WHERE category=?', [category]);
     if (category == 'files') await customStatement('DELETE FROM indexed_files');
+    if (category == 'device') {
+      await customStatement('DELETE FROM monitor_samples');
+    }
   });
 }

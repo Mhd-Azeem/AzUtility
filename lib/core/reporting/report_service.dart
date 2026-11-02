@@ -2,9 +2,30 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:pdf/widgets.dart' as pw;
+import 'package:pdf/pdf.dart';
+import 'package:flutter/services.dart';
+import 'comparison.dart';
 import 'package:path/path.dart' as p;
 
 class ReportService {
+  static Future<List<pw.Font>>? _fonts;
+  static Future<List<pw.Font>> fonts() => _fonts ??= _loadFonts();
+  static Future<List<pw.Font>> _loadFonts() async {
+    final loaded = <pw.Font>[];
+    for (final name in [
+      'NotoSans',
+      'NotoSansArabic',
+      'NotoSansSinhala',
+      'NotoSansTamil',
+      'NotoSansDevanagari',
+      'NotoSansSC',
+    ]) {
+      final bytes = await rootBundle.load('assets/fonts/$name.ttf');
+      loaded.add(pw.Font.ttf(bytes));
+    }
+    return loaded;
+  }
+
   String csv(List<Map<String, dynamic>> records) {
     String quote(Object? value) {
       var text = value?.toString() ?? '';
@@ -37,7 +58,14 @@ class ReportService {
       'AZUtility-report-${DateTime.now().microsecondsSinceEpoch}.$format',
     );
     if (format == 'pdf') {
-      final document = pw.Document();
+      final loaded = await fonts();
+      final document = pw.Document(
+        theme: pw.ThemeData.withFont(
+          base: loaded.first,
+          bold: loaded.first,
+          fontFallback: loaded.skip(1).toList(),
+        ),
+      );
       document.addPage(
         pw.MultiPage(
           maxPages: 1000,
@@ -55,6 +83,7 @@ class ReportService {
                 child: pw.Text('${record['category']} - ${record['title']}'),
               ),
               pw.Text('${record['created']}'),
+              ..._charts(record['payload']),
               for (final line in _pdfLines(record['payload'])) pw.Text(line),
             ],
           ],
@@ -70,6 +99,38 @@ class ReportService {
       );
     }
     return path;
+  }
+
+  List<pw.Widget> _charts(dynamic payload) {
+    final values = recordTimeline(payload).whereType<double>().toList();
+    if (values.isEmpty) return [];
+    final maximum = values.reduce((a, b) => a > b ? a : b);
+    final stride = (values.length / 60).ceil().clamp(1, values.length);
+    return [
+      pw.Text(
+        'TCP latency (ms), ordered successful samples; gaps/failures are listed in exported data',
+      ),
+      pw.SizedBox(
+        height: 70,
+        child: pw.Row(
+          crossAxisAlignment: pw.CrossAxisAlignment.end,
+          children: [
+            for (int i = 0; i < values.length; i += stride)
+              pw.Expanded(
+                child: pw.Padding(
+                  padding: const pw.EdgeInsets.symmetric(horizontal: 1),
+                  child: pw.Container(
+                    height: maximum > 0 ? 65 * values[i] / maximum : 1,
+                    color: PdfColors.cyan700,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+      for (final e in numericObservations(payload).entries)
+        pw.Text('${e.key}: ${e.value.toStringAsFixed(3)}'),
+    ];
   }
 
   List<String> _pdfLines(dynamic payload) {
@@ -93,9 +154,7 @@ class ReportService {
         },
       };
     }
-    final text = const JsonEncoder.withIndent(
-      '  ',
-    ).convert(summary).replaceAll(RegExp(r'[^\x20-\x7E\n]'), '?');
+    final text = const JsonEncoder.withIndent('  ').convert(summary);
     // Keep every widget small enough to fit on a page, even for long paths.
     return text
         .split('\n')

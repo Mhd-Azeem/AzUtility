@@ -220,7 +220,18 @@ class NetworkService {
               443,
               timeout: const Duration(milliseconds: 400),
             );
+            String? hostname;
+            try {
+              final resolved = await InternetAddress(
+                ip,
+              ).reverse().timeout(const Duration(milliseconds: 400));
+              if (resolved.host != ip) hostname = resolved.host;
+            } on Object {
+              /* Reverse DNS is optional. */
+            }
+            cancel.check();
             return <String, Object?>{
+              'hostname': hostname,
               'ip': ip,
               'ms': timer.elapsedMicroseconds / 1000,
             };

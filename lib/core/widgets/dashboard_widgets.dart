@@ -49,8 +49,9 @@ class PageBody extends StatelessWidget {
 }
 
 class MetricGrid extends StatelessWidget {
-  const MetricGrid({super.key, required this.metrics});
+  const MetricGrid({super.key, required this.metrics, this.onTap});
   final List<Metric> metrics;
+  final void Function(Metric)? onTap;
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, c) {
@@ -67,6 +68,7 @@ class MetricGrid extends StatelessWidget {
               (m) => SizedBox(
                 width: (c.maxWidth - (columns - 1) * 8) / columns,
                 child: Panel(
+                  onTap: onTap == null ? null : () => onTap!(m),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [

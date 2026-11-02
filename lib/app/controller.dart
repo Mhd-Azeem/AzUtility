@@ -22,6 +22,16 @@ final controllerProvider = ChangeNotifierProvider<AppController>(
 class AppController extends ChangeNotifier with WidgetsBindingObserver {
   AppController(this.db) {
     WidgetsBinding.instance.addObserver(this);
+    NativeBridge.channel.setMethodCallHandler((call) async {
+      if (call.method == 'filesDropped') {
+        droppedPaths = (call.arguments as List)
+            .cast<String>()
+            .take(1000)
+            .toList();
+        status = 'Dropped ${droppedPaths.length} items. Open Files to review.';
+        notifyListeners();
+      }
+    });
     ready = _initialize();
   }
   final AppDatabase db;
@@ -37,6 +47,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   final metricHistory = <String, ListQueue<double>>{};
   List<List<IndexedFile>> duplicateGroups = [];
   String? root;
+  List<String> droppedPaths = [];
   String? error;
   String status = 'Ready';
   double? progress;
@@ -46,11 +57,13 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   Timer? _monitor;
   bool _disposed = false;
   bool _refreshing = false;
+  DateTime? _lastPersisted;
   Future<void> _initialize() async {
     try {
       settings = await db.settings();
       files.index.addAll(await db.loadIndex());
       root = settings['scanRoot'] as String?;
+      await db.prune((settings['retentionDays'] as num?)?.toInt() ?? 90);
       await refresh();
     } catch (e) {
       error = 'Local storage could not be loaded: $e';
@@ -80,6 +93,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
       refreshMetrics();
     } else {
       _monitor?.cancel();
+      unawaited(native.cancelHardware());
     }
   }
 
@@ -93,6 +107,12 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     _refreshing = true;
     try {
       metrics = await device.snapshot();
+      if (settings['persistMonitoring'] == true &&
+          (_lastPersisted == null ||
+              DateTime.now().difference(_lastPersisted!).inSeconds >= 60)) {
+        await db.saveMonitoring(metrics);
+        _lastPersisted = DateTime.now();
+      }
       for (final metric in metrics.where((m) => m.ratio != null)) {
         final values = metricHistory.putIfAbsent(
           metric.label,
@@ -126,11 +146,23 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
     try {
       await db.set(key, value);
       if (key == 'refreshSeconds') _startMonitor();
+      if (key == 'retentionDays') {
+        await db.prune((value as num).toInt());
+        await refresh();
+      }
     } catch (e) {
       settings[key] = previous;
       error = 'Preference could not be saved: $e';
       notifyListeners();
     }
+  }
+
+  Future<void> resetSettings() async {
+    await db.resetSettings();
+    settings.clear();
+    root = null;
+    _startMonitor();
+    notifyListeners();
   }
 
   void cancel() {
@@ -306,6 +338,7 @@ class AppController extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _disposed = true;
+    NativeBridge.channel.setMethodCallHandler(null);
     WidgetsBinding.instance.removeObserver(this);
     _monitor?.cancel();
     _cancel?.cancel();

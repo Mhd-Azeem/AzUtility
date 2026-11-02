@@ -15,6 +15,7 @@ import 'package:az_utility/features/device_doctor/device_service.dart';
 import 'package:az_utility/core/platform/native_bridge.dart';
 
 void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
   test(
     'DNS failure is categorized and produces no invented TCP value',
     () async {
@@ -275,7 +276,7 @@ void main() {
       await db.clear('network');
       expect((await db.history()).single['category'], 'device');
       final version = await db.customSelect('PRAGMA user_version').getSingle();
-      expect(version.data.values.single, 2);
+      expect(version.data.values.single, 3);
     },
   );
   test('reports escape CSV cells and produce local JSON and PDF', () async {

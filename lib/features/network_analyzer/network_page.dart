@@ -5,6 +5,7 @@ import '../../app/controller.dart';
 import '../../core/models.dart';
 import '../../core/widgets/dashboard_widgets.dart';
 import 'network_service.dart';
+import 'wifi_page.dart';
 
 class NetworkPage extends ConsumerStatefulWidget {
   const NetworkPage({super.key});
@@ -108,6 +109,13 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
               child: const Text('Test upload'),
             ),
             OutlinedButton(
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute<void>(builder: (_) => const WifiPage()),
+              ),
+              child: const Text('Wi-Fi & interfaces'),
+            ),
+            OutlinedButton(
               onPressed: app.busy ? null : _lan,
               child: const Text('Discover private LAN'),
             ),
@@ -166,7 +174,8 @@ class _NetworkPageState extends ConsumerState<NetworkPage> {
                 ),
                 for (final host in hosts)
                   ListTile(
-                    title: Text('${host['ip']}'),
+                    title: Text('${host['hostname'] ?? host['ip']}'),
+                    subtitle: Text('${host['ip']}'),
                     trailing: Text(
                       '${(host['ms'] as num).toStringAsFixed(1)} ms',
                     ),

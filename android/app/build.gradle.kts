@@ -27,7 +27,7 @@ extensions.configure<ApplicationExtension> {
         applicationId = "com.az.utility"
         ndk {
             abiFilters.clear()
-            abiFilters.add("arm64-v8a")
+            abiFilters.add(if (project.findProperty("azEmulator") == "true") "x86_64" else "arm64-v8a")
         }
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
@@ -67,3 +67,5 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies { implementation("androidx.core:core:1.17.0") }

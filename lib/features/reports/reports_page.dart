@@ -10,6 +10,7 @@ import 'package:open_filex/open_filex.dart';
 
 import '../../app/controller.dart';
 import '../../core/reporting/report_service.dart';
+import '../../core/reporting/comparison.dart';
 import '../../core/widgets/dashboard_widgets.dart';
 
 class ReportsPage extends ConsumerStatefulWidget {
@@ -21,6 +22,7 @@ class ReportsPage extends ConsumerStatefulWidget {
 class _ReportsPageState extends ConsumerState<ReportsPage> {
   String category = 'all';
   DateTime? since;
+  final selected = <int>{};
   @override
   Widget build(BuildContext context) {
     final app = ref.watch(controllerProvider);
@@ -39,6 +41,32 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
       children: [
         ActionWrap(
           children: [
+            OutlinedButton(
+              onPressed: selected.length == 2
+                  ? () => compare(
+                      app.history
+                          .where((r) => selected.contains(r['id']))
+                          .toList(),
+                    )
+                  : null,
+              child: Text('Compare ${selected.length}/2'),
+            ),
+            OutlinedButton(
+              onPressed: () async {
+                final samples = await app.db.monitoring();
+                if (samples.isNotEmpty) {
+                  await export('json', [
+                    {
+                      'category': 'device',
+                      'title': 'Saved monitoring samples',
+                      'created': DateTime.now().toUtc().toIso8601String(),
+                      'payload': samples,
+                    },
+                  ]);
+                }
+              },
+              child: const Text('Export saved monitoring'),
+            ),
             DropdownButton<String>(
               value: category,
               items: [
@@ -87,9 +115,28 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
           Panel(
             child: ExpansionTile(
               tilePadding: EdgeInsets.zero,
+              leading: Checkbox(
+                value: selected.contains(record['id']),
+                onChanged: (value) => setState(() {
+                  if (value == true && selected.length < 2) {
+                    selected.add(record['id'] as int);
+                  } else {
+                    selected.remove(record['id']);
+                  }
+                }),
+              ),
               title: Text('${record['title']}'),
               subtitle: Text('${record['category']} · ${record['created']}'),
               children: [
+                if (recordTimeline(record['payload']).isNotEmpty)
+                  LatencyChart(values: recordTimeline(record['payload'])),
+                for (final observation in numericObservations(
+                  record['payload'],
+                ).entries)
+                  ListTile(
+                    title: Text(observation.key),
+                    trailing: Text(observationText(observation.value)),
+                  ),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: SelectableText(
@@ -102,6 +149,92 @@ class _ReportsPageState extends ConsumerState<ReportsPage> {
             ),
           ),
       ],
+    );
+  }
+
+  Future<void> compare(List<Map<String, dynamic>> records) async {
+    if (records.length != 2) return;
+    final a = numericObservations(records[0]['payload']),
+        b = numericObservations(records[1]['payload']);
+    final keys = {...a.keys, ...b.keys};
+    await showDialog<void>(
+      context: context,
+      builder: (c) => AlertDialog(
+        title: const Text('Local result comparison'),
+        content: SizedBox(
+          width: 850,
+          height: 550,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'A: ${records[0]['title']} · ${records[0]['created']}\nB: ${records[1]['title']} · ${records[1]['created']}',
+                ),
+                const Text(
+                  'Deltas are A minus B. Compare equivalent tests and endpoints; cached storage and system load affect results.',
+                ),
+                if (records[0]['title'] != records[1]['title'])
+                  const Text(
+                    'Different test types: values may not be comparable.',
+                  ),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: DataTable(
+                    columns: const [
+                      DataColumn(label: Text('Metric')),
+                      DataColumn(label: Text('A')),
+                      DataColumn(label: Text('B')),
+                      DataColumn(label: Text('A − B')),
+                    ],
+                    rows: [
+                      for (final key in keys)
+                        DataRow(
+                          cells: [
+                            DataCell(Text(key)),
+                            DataCell(Text(observationText(a[key]))),
+                            DataCell(Text(observationText(b[key]))),
+                            DataCell(
+                              Text(
+                                a[key] != null && b[key] != null
+                                    ? observationText(a[key]! - b[key]!)
+                                    : 'Not comparable',
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
+                  ),
+                ),
+                for (final record in records)
+                  if (recordTimeline(record['payload']).isNotEmpty)
+                    Column(
+                      children: [
+                        Text('${record['created']} · TCP ms'),
+                        LatencyChart(values: recordTimeline(record['payload'])),
+                      ],
+                    ),
+                if (keys.isEmpty)
+                  const Text(
+                    'These records have no numeric observations. Use their detailed results below.',
+                  ),
+                for (final record in records)
+                  SelectableText(
+                    const JsonEncoder.withIndent(
+                      '  ',
+                    ).convert(record['payload']),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(c),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

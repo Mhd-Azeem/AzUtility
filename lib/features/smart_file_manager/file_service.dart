@@ -230,10 +230,16 @@ class FileService {
     if (p.equals(source, destination) || p.isWithin(source, destination)) {
       throw ArgumentError('Cannot copy into the source');
     }
+    cancel.check();
+    if (await FileSystemEntity.isDirectory(source)) {
+      await _copyDirectory(source, destination, cancel, move: move);
+      return;
+    }
     if (await FileSystemEntity.type(source, followLinks: false) !=
         FileSystemEntityType.file) {
-      throw const FileSystemException('Select a regular file');
+      throw const FileSystemException('Select a regular file or directory');
     }
+    final original = await File(source).stat();
     final temporary =
         '$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
     final output = File(temporary).openWrite();
@@ -250,11 +256,108 @@ class FileService {
         throw const FileSystemException('Destination appeared during copy');
       }
       await File(temporary).rename(destination);
+      final after = await File(source).stat();
+      if (after.size != original.size || after.modified != original.modified) {
+        throw const FileSystemException(
+          'Source changed during copy; source retained',
+        );
+      }
       if (move) await File(source).delete();
     } catch (_) {
       await output.close();
       if (await File(temporary).exists()) await File(temporary).delete();
       rethrow;
+    }
+  }
+
+  Future<void> _copyDirectory(
+    String source,
+    String destination,
+    Cancellation cancel, {
+    required bool move,
+  }) async {
+    final staging =
+        '$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
+    // Snapshot metadata before copying. Never remove a changed source tree.
+    final original = <String, FileStat>{};
+    final dirs = <String>{source};
+    await for (final entry in Directory(
+      source,
+    ).list(recursive: true, followLinks: false)) {
+      cancel.check();
+      await _noLink(entry.path);
+      if (entry is Directory) {
+        dirs.add(entry.path);
+      } else if (entry is File) {
+        original[entry.path] = await entry.stat();
+      } else {
+        throw const FileSystemException('Unsupported entry in directory');
+      }
+      if (original.length + dirs.length > 100000) {
+        throw const FileSystemException('Copy exceeds 100,000 entries');
+      }
+    }
+    try {
+      await Directory(staging).create();
+      for (final dir in dirs.skip(1)) {
+        cancel.check();
+        await Directory(
+          p.join(staging, p.relative(dir, from: source)),
+        ).create(recursive: true);
+      }
+      for (final file in original.keys) {
+        await copy(
+          file,
+          p.join(staging, p.relative(file, from: source)),
+          cancel,
+        );
+      }
+      cancel.check();
+      if (await FileSystemEntity.type(destination, followLinks: false) !=
+          FileSystemEntityType.notFound) {
+        throw const FileSystemException('Destination appeared during copy');
+      }
+      await Directory(staging).rename(destination);
+      if (move) {
+        final current = <String>{};
+        await for (final entry in Directory(
+          source,
+        ).list(recursive: true, followLinks: false)) {
+          cancel.check();
+          await _noLink(entry.path);
+          current.add(entry.path);
+          if (entry is File) {
+            final before = original[entry.path], after = await entry.stat();
+            if (before == null ||
+                before.size != after.size ||
+                before.modified != after.modified) {
+              throw const FileSystemException(
+                'Source changed; copied destination and source both retained',
+              );
+            }
+          }
+        }
+        if (current.length != original.length + dirs.length - 1) {
+          throw const FileSystemException(
+            'Source tree changed; source retained',
+          );
+        }
+        // Delete only the known, unchanged files, then empty directories. A new file prevents directory removal.
+        for (final file in original.keys) {
+          cancel.check();
+          await File(file).delete();
+        }
+        final deepest = dirs.toList()
+          ..sort((a, b) => b.length.compareTo(a.length));
+        for (final dir in deepest) {
+          cancel.check();
+          await Directory(dir).delete();
+        }
+      }
+    } finally {
+      if (await Directory(staging).exists()) {
+        await Directory(staging).delete(recursive: true);
+      }
     }
   }
 
@@ -274,7 +377,12 @@ class FileService {
 
   Future<void> deleteFile(String path) async {
     await _noLink(path);
-    await File(path).delete();
+    if (await FileSystemEntity.isDirectory(path)) {
+      // Explicit recursive folder deletion is exposed only after UI confirmation.
+      await Directory(path).delete(recursive: true);
+    } else {
+      await File(path).delete();
+    }
   }
 
   Future<List<String>> inspectZip(String path) => Isolate.run(() {

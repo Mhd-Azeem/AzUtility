@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:async';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -27,6 +28,15 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   String sort = 'Name';
   final selected = <String>{};
   String? listingError;
+  StreamSubscription<FileSystemEvent>? watcher;
+  Timer? watchDebounce;
+  @override
+  void dispose() {
+    watcher?.cancel();
+    watchDebounce?.cancel();
+    super.dispose();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -37,6 +47,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       sort = app.settings['fileSort'] as String? ?? 'Name';
       current = app.root;
       if (current != null) {
+        await watchFolder();
         await load();
       }
     });
@@ -49,7 +60,29 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     if (path == null || !mounted) return;
     ref.read(controllerProvider).root = path;
     current = path;
+    await watchFolder();
     await load();
+  }
+
+  Future<void> watchFolder() async {
+    await watcher?.cancel();
+    try {
+      watcher = Directory(current!).watch().listen(
+        (_) {
+          watchDebounce?.cancel();
+          watchDebounce = Timer(const Duration(milliseconds: 600), () {
+            if (mounted) load();
+          });
+        },
+        onError: (Object e) {
+          if (mounted) {
+            setState(() => listingError = 'Live updates unavailable: $e');
+          }
+        },
+      );
+    } catch (_) {
+      /* Manual refresh remains available on unsupported providers. */
+    }
   }
 
   Future<void> load() async {
@@ -158,6 +191,109 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       subtitle:
           'Selected accessible folders only · Symlinks are never followed',
       children: [
+        if (app.droppedPaths.isNotEmpty)
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${app.droppedPaths.length} dropped items ready to review',
+                ),
+                for (final path in app.droppedPaths.take(10)) Text(path),
+                ActionWrap(
+                  children: [
+                    OutlinedButton(
+                      onPressed: app.busy || current == null
+                          ? null
+                          : () async {
+                              final paths = app.droppedPaths.toList();
+                              final yes = await showDialog<bool>(
+                                context: context,
+                                builder: (c) => AlertDialog(
+                                  title: const Text('Copy dropped items?'),
+                                  content: Text(
+                                    '${paths.length} items → $current\nExisting names will be rejected.',
+                                  ),
+                                  actions: [
+                                    TextButton(
+                                      onPressed: () => Navigator.pop(c, false),
+                                      child: const Text('Cancel'),
+                                    ),
+                                    FilledButton(
+                                      onPressed: () => Navigator.pop(c, true),
+                                      child: const Text('Copy'),
+                                    ),
+                                  ],
+                                ),
+                              );
+                              if (yes == true) {
+                                await operation('Copy dropped items', (
+                                  token,
+                                ) async {
+                                  for (final path in paths) {
+                                    await app.files.copy(
+                                      path,
+                                      safeChild(current!, p.basename(path)),
+                                      token,
+                                    );
+                                  }
+                                });
+                                app.droppedPaths.clear();
+                                app.notifyListeners();
+                              }
+                            },
+                      child: const Text('Copy into current folder'),
+                    ),
+                    if (app.droppedPaths.length == 1)
+                      TextButton(
+                        onPressed: () async {
+                          final path = app.droppedPaths.single;
+                          if (await Directory(path).exists()) {
+                            app.root = path;
+                            await navigate(path);
+                            app.droppedPaths.clear();
+                            app.notifyListeners();
+                          }
+                        },
+                        child: const Text('Open dropped folder'),
+                      ),
+                    TextButton(
+                      onPressed: () {
+                        app.droppedPaths.clear();
+                        app.notifyListeners();
+                      },
+                      child: const Text('Dismiss'),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        if (Platform.isAndroid)
+          ActionWrap(
+            children: [
+              OutlinedButton(
+                onPressed: () => Navigator.push(
+                  context,
+                  MaterialPageRoute<void>(
+                    builder: (_) => const SafPage(uri: '', media: true),
+                  ),
+                ),
+                child: const Text('Media library'),
+              ),
+              if (app.settings['lastSafTree'] is String)
+                OutlinedButton(
+                  onPressed: () => Navigator.push(
+                    context,
+                    MaterialPageRoute<void>(
+                      builder: (_) =>
+                          SafPage(uri: app.settings['lastSafTree'] as String),
+                    ),
+                  ),
+                  child: const Text('Reopen granted folder'),
+                ),
+            ],
+          ),
         if (total > 0)
           Panel(
             child: StorageTreemap(
@@ -300,6 +436,20 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                     ),
                   ],
                 ),
+                SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: Row(
+                    children: [
+                      for (final path in breadcrumbs(current!))
+                        TextButton(
+                          onPressed: () => navigate(path),
+                          child: Text(
+                            p.basename(path).isEmpty ? path : p.basename(path),
+                          ),
+                        ),
+                    ],
+                  ),
+                ),
                 TextField(
                   decoration: const InputDecoration(
                     prefixIcon: Icon(Icons.search),
@@ -355,7 +505,13 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                         child: const Text('Move'),
                       ),
                       TextButton(
-                        onPressed: app.busy ? null : zip,
+                        onPressed:
+                            app.busy ||
+                                selected.any(
+                                  (path) => Directory(path).existsSync(),
+                                )
+                            ? null
+                            : zip,
                         child: const Text('Create ZIP'),
                       ),
                       TextButton(
@@ -399,6 +555,28 @@ class _FilesPageState extends ConsumerState<FilesPage> {
               ],
             ),
           ),
+        if (app.files.index.isNotEmpty)
+          Panel(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text('Folder size ranking · indexed subset'),
+                ...folderRanking(app.files.index)
+                    .take(20)
+                    .map(
+                      (entry) => ListTile(
+                        title: Text(entry.key),
+                        trailing: Text(bytes(entry.value)),
+                        onTap: () => showLarge(
+                          app.files.index
+                              .where((f) => p.dirname(f.path) == entry.key)
+                              .toList(),
+                        ),
+                      ),
+                    ),
+              ],
+            ),
+          ),
         if (app.duplicateGroups.isNotEmpty)
           Panel(
             child: Column(
@@ -415,6 +593,14 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                     children: [
                       for (final file in group)
                         ListTile(
+                          leading: Checkbox(
+                            value: selected.contains(file.path),
+                            onChanged: (v) => setState(
+                              () => v == true
+                                  ? selected.add(file.path)
+                                  : selected.remove(file.path),
+                            ),
+                          ),
                           title: Text(p.basename(file.path)),
                           subtitle: Text(file.path),
                           onTap: () => OpenFilex.open(file.path),
@@ -492,7 +678,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
               children: [
                 Checkbox(
                   value: selected.contains(entity.path),
-                  onChanged: folder || link
+                  onChanged: link
                       ? null
                       : (v) => setState(
                           () => v == true
@@ -509,7 +695,11 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                 PopupMenuButton<String>(
                   onSelected: (action) => fileAction(action, entity),
                   itemBuilder: (_) => [
-                    for (final action in ['Details', 'Rename'])
+                    for (final action in [
+                      'Details',
+                      'Rename',
+                      if (!folder && !link) 'Share',
+                    ])
                       PopupMenuItem(value: action, child: Text(action)),
                   ],
                 ),
@@ -527,7 +717,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           children: [
             Checkbox(
               value: selected.contains(entity.path),
-              onChanged: folder || link
+              onChanged: link
                   ? null
                   : (v) => setState(
                       () => v == true
@@ -561,6 +751,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           for (final action in [
             'Details',
             'Rename',
+            if (!folder && !link) 'Share',
             if (!folder && !link && p.extension(name).toLowerCase() == '.zip')
               'Inspect ZIP',
             if (!folder && !link && p.extension(name).toLowerCase() == '.zip')
@@ -574,6 +765,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
 
   Future<void> navigate(String path) async {
     current = path;
+    await watchFolder();
     await load();
   }
 
@@ -611,9 +803,15 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: Text('Permanently delete ${targets.length} files?'),
-        content: const Text(
-          'These files will not go to a recycle bin. Recovery is not guaranteed. No folders are deleted.',
+        title: Text(
+          Platform.isWindows
+              ? 'Recycle ${targets.length} items?'
+              : 'Permanently delete ${targets.length} items?',
+        ),
+        content: Text(
+          Platform.isWindows
+              ? 'Windows will attempt to send these items to the Recycle Bin. Some volumes cannot recycle; Windows may ask for permanent deletion. Folder contents are included.'
+              : 'Recovery is not guaranteed. Selected folders and their contents will be permanently deleted.',
         ),
         actions: [
           TextButton(
@@ -622,7 +820,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Permanently delete'),
+            child: Text(Platform.isWindows ? 'Recycle' : 'Permanently delete'),
           ),
         ],
       ),
@@ -631,7 +829,13 @@ class _FilesPageState extends ConsumerState<FilesPage> {
       await operation('Delete files', (token) async {
         for (final path in targets) {
           token.check();
-          await ref.read(controllerProvider).files.deleteFile(path);
+          if (Platform.isWindows) {
+            await ref.read(controllerProvider).native.invoke('recycle', {
+              'path': path,
+            });
+          } else {
+            await ref.read(controllerProvider).files.deleteFile(path);
+          }
         }
       });
     }
@@ -652,6 +856,13 @@ class _FilesPageState extends ConsumerState<FilesPage> {
 
   Future<void> fileAction(String action, FileSystemEntity entity) async {
     final service = ref.read(controllerProvider).files;
+    if (action == 'Share') {
+      await operation('Share file', (_) async {
+        await ref.read(controllerProvider).native.invoke('shareFile', {
+          'path': entity.path,
+        });
+      });
+    }
     if (action == 'Rename') {
       final name = await prompt('Rename', initial: p.basename(entity.path));
       if (name != null) {
@@ -747,17 +958,42 @@ class _FilesPageState extends ConsumerState<FilesPage> {
     );
   }
 
+  List<String> breadcrumbs(String path) {
+    final output = <String>[path];
+    var parent = p.dirname(path);
+    while (parent != output.last && output.length < 64) {
+      output.add(parent);
+      parent = p.dirname(parent);
+    }
+    return output.reversed.toList();
+  }
+
+  Iterable<MapEntry<String, int>> folderRanking(List<IndexedFile> files) {
+    final totals = <String, int>{};
+    for (final file in files) {
+      totals.update(
+        p.dirname(file.path),
+        (v) => v + file.size,
+        ifAbsent: () => file.size,
+      );
+    }
+    return totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+  }
+
   Future<void> openSaf() async {
     final app = ref.read(controllerProvider);
-    await app.run('Choose Android folder', (token) async {
+    try {
       final uri = await app.native.chooseTree();
-      token.check();
       if (uri != null && mounted) {
+        await app.set('lastSafTree', uri);
+        if (!mounted) return;
         await Navigator.push(
           context,
           MaterialPageRoute<void>(builder: (_) => SafPage(uri: uri)),
         );
       }
-    });
+    } catch (e) {
+      if (mounted) setState(() => listingError = '$e');
+    }
   }
 }

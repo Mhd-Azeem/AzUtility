@@ -41,6 +41,10 @@ class SettingsPage extends ConsumerWidget {
               toggle('Purple accent', 'purple'),
               toggle('Reduced motion', 'reducedMotion'),
               toggle('Compact display density', 'compact'),
+              toggle(
+                'Save monitoring samples locally (once per minute)',
+                'persistMonitoring',
+              ),
               toggle('Image thumbnails', 'thumbnails', fallback: true),
             ],
           ),
@@ -148,7 +152,43 @@ class SettingsPage extends ConsumerWidget {
                 '.git,node_modules',
               ),
               const Text(
-                'History is bounded to 500 records per category. The latest scan index stores file paths, sizes, modification dates and categories locally. Clearing file history also removes this index. Native permission prompts appear only when requested.',
+                'History is bounded to 500 records per category and the selected retention period. Saved monitoring is capped at 10,000 samples. The latest scan index stores file paths, sizes, modification dates and categories locally. Clearing file history also removes this index. Native permission prompts appear only when requested.',
+              ),
+              ListTile(
+                title: const Text('History retention'),
+                trailing: DropdownButton<int>(
+                  value: (app.settings['retentionDays'] as num?)?.toInt() ?? 90,
+                  items: [
+                    for (final days in [7, 30, 90, 365])
+                      DropdownMenuItem(value: days, child: Text('$days days')),
+                  ],
+                  onChanged: (days) => app.set('retentionDays', days),
+                ),
+              ),
+              ListTile(
+                title: const Text('Reset preferences'),
+                subtitle: const Text(
+                  'Restores default preferences. Diagnostic history is kept.',
+                ),
+                onTap: () async {
+                  final yes = await showDialog<bool>(
+                    context: context,
+                    builder: (c) => AlertDialog(
+                      title: const Text('Reset preferences?'),
+                      actions: [
+                        TextButton(
+                          onPressed: () => Navigator.pop(c, false),
+                          child: const Text('Cancel'),
+                        ),
+                        FilledButton(
+                          onPressed: () => Navigator.pop(c, true),
+                          child: const Text('Reset'),
+                        ),
+                      ],
+                    ),
+                  );
+                  if (yes == true) await app.resetSettings();
+                },
               ),
               for (final category in ['network', 'files', 'device'])
                 ListTile(
