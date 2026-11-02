@@ -34,4 +34,18 @@ jobs:
           arch: x86_64
           target: google_apis
           disable-animations: true
-          script: flutter test integration_test/provider_test.dart -d emulator-5554 --timeout 10m
+          script: |
+            adb logcat -c
+            result=0
+            timeout 8m flutter test integration_test/provider_test.dart -d emulator-5554 --timeout 3m --verbose > integration.log 2>&1 || result=$?
+            cat integration.log
+            adb logcat -d > android-logcat.txt
+            if [ "$result" -ne 0 ]; then tail -n 250 android-logcat.txt; fi
+            exit "$result"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: android-15-integration-logs
+          path: |
+            integration.log
+            android-logcat.txt
