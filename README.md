@@ -4,7 +4,7 @@ One offline-first Flutter application for Android and Windows, combining Network
 
 ## Develop
 
-Use Flutter **3.47.9** (stable), Java 21, the Android SDK, and Visual Studio 2022/2026 with Desktop development with C++ for Windows. Dependency versions are pinned in `pubspec.yaml`; commit `pubspec.lock` after dependency resolution. SQLite uses sqlite3's native build hook. Drift uses explicit SQL migrations, so no generated source is required.
+Use Flutter **3.47.9**, Java 21, Android SDK, and Visual Studio with Desktop development with C++ for Windows. Dependencies and lockfile are committed. Drift uses explicit SQL migrations; no generated source is required.
 
 ```sh
 flutter pub get
@@ -15,22 +15,26 @@ flutter build apk --release --target-platform android-arm64
 flutter build windows --release
 ```
 
-The application has no account, backend, advertising or analytics dependency. Initial network endpoint is `https://example.com`; tests run only after user action. Speed tests require an authorized HTTPS endpoint configured in Settings, and never send user file contents.
+No account, backend, advertising or analytics dependency. Initial diagnostic endpoint: `https://example.com`; network tests require user action. Speed tests require explicitly configured authorized HTTPS endpoints and never send user file contents.
 
 ## Install
 
-Android: use an ARM64 APK, allow installation from your selected source, and open AZ Utility. The unsigned-production fallback is **debug certificate signed**, with `test-signed` in the artifact filename. Production signing requires the four `ANDROID_*` secrets used by the workflows. Never distribute the fallback as a production-signed release.
+Android: install the ARM64 APK after allowing installation from the chosen source. The `test-signed` package is release-mode with an Android Debug certificate. Production signing requires the four `ANDROID_*` secrets in the workflows.
 
-Windows: extract the entire distribution ZIP into a user-writable folder, keeping `data/`, all DLLs, and `AZUtility.exe` together. Run `AZUtility.exe`. The executable is unsigned. Administrator privileges are not required for routine use.
+Windows: extract the entire distribution ZIP into a user-writable folder, keeping `data/`, all DLLs and `AZUtility.exe` together. Run `AZUtility.exe`. It is unsigned. Routine use does not require administrator privileges.
 
-## Data and permissions
+## Features and permissions
 
-One local SQLite database stores settings, bounded diagnostic history and the latest file index. Each history category can be cleared in Settings. Android uses a folder picker and persistable SAF URI grants; microphone access is requested only for the recording test. No root, All files access or location permission is requested. Files accessible to a document provider are browsed separately from readable filesystem paths. Other apps' private data is inaccessible.
+Real DNS/TCP/HTTPS diagnostics, configured throughput tests, Wi-Fi details, private LAN discovery, local history, comparisons and export. Latency and failure estimates have explicit methodologies; TCP timing is never called ICMP ping.
 
-Network latency means TCP connection time to the first resolved address (excluding DNS lookup) or HTTPS header time as labeled, never ICMP ping. Failure estimates are DNS/TCP failures per diagnostic attempt, not packet-level loss. Throughput counts uncompressed HTTP payload bytes. LAN discovery requires explicit private-interface selection and probes only TCP port 443 in a /24; devices without that service may be missed.
+Files include recursive folder operations, SAF/MediaStore integration, full SHA-256 duplicates, large-file review, interactive storage charts, incremental readable-folder indexing and ZIP operations. Windows uses the Recycle Bin; Android media uses system trash where supported. SAF/path deletion is confirmed and permanent. Archive traversal/links/overwrite are rejected, with 10,000-entry / 512 MiB bounds and staging cleanup. Readable-path ZIPs support passwords; provider ZIPs do not.
 
-File scans do not follow symlinks and stop at 100,000 indexed files. Duplicate groups use full SHA-256 with before/after metadata checks. File deletion is explicit, confirmed and permanent; there is no recovery guarantee. ZIP extraction rejects traversal and links, refuses an existing destination and caps expansion at 512 MiB / 10,000 entries. Cancellation can leave a partially extracted folder.
+Device features include capability-aware inventory, four detailed metric cards, foreground monitoring, supported live sensors, interactive hardware checks, conservative benchmarks and evidence-based observations. Monitoring persistence is optional and bounded.
 
-## Build automation
+One SQLite database stores preferences, history and the latest index, with schema migrations and configurable retention. Clear each category independently in Settings. PDF/JSON/CSV export works locally; PDF fonts are bundled.
 
-`ci.yml` verifies and packages on pushes and pull requests. `release.yml` validates version tags, builds both targets and attaches checksums and signing notices. Workflows must finish successfully before artifacts can be considered verified. See `docs/ENGINEERING_REPORT.md` for actual evidence and outstanding work.
+Android requests SAF grants, media, microphone and optional Wi-Fi location permissions at feature use with explanations. No root or All files access; other apps' private data remains inaccessible. See [platform capabilities](docs/PLATFORM_CAPABILITIES.md) for exact restrictions.
+
+## Automation and evidence
+
+`ci.yml` checks source/tests, runs native Windows startup/navigation and packages both platforms. `android-integration.yml` exercises provider operations on Android 15 using a debug-only fixture. `release.yml` builds and attaches validated artifacts/checksums when a valid version tag is pushed. See [engineering report](docs/ENGINEERING_REPORT.md) for actual results, signing status and remaining external verification.

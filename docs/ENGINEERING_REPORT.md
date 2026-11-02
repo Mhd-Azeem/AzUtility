@@ -2,107 +2,69 @@
 
 Date: 2026-11-02 (Asia/Colombo).
 
-## Delivery status
+## Repository and architecture
 
-This is a working integrated application implementation, **not yet complete against every item in the full master specification**. The repository was empty; there was no existing functionality, workflow or asset to preserve. Initial GitHub metadata named `main` as the default branch. Work is on `feature/az-utility` in [Mhd-Azeem/AzUtility](https://github.com/Mhd-Azeem/AzUtility).
+Repository: [Mhd-Azeem/AzUtility](https://github.com/Mhd-Azeem/AzUtility). Branch/default branch: `feature/az-utility`. The initially empty repository was implemented without replacing unrelated work. One Flutter application contains Network Analyzer, Smart File Manager and Device Doctor, one Android identity (`com.az.utility`) and one Windows executable (`AZUtility.exe`).
 
-Both native release-mode builds and packaging succeeded. The verified application/configuration commit is `d11a50549600f784f48fb2f6df9b0989a3c45c82`; [workflow 41357394257](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41357394257) completed successfully for Android and Windows. The repository's current default branch is `feature/az-utility`, which became the default when the first branch was pushed to the empty repository. No production signing or physical Android testing is claimed.
+Flutter 3.47.9 / Dart 3.13.7, Riverpod, go_router, Material 3, fl_chart and Drift/SQLite. Kotlin handles Android APIs, C++/Win32 handles Windows APIs. Network/file/device services separate operations from UI. SQLite uses explicit schema-v3 creation/upgrades; no generated source is required. Dependencies/lockfile, native projects, source, tests, OFL font licenses and workflows are committed.
 
-Deliverables:
-
-- `AZUtility-v1.0.0-android-arm64-test-signed.apk` — 23,434,487 bytes; release-mode ARM64 APK signed with an Android Debug certificate.
-- `AZUtility-v1.0.0-windows-x64.zip` — 15,573,891 bytes; unsigned x64 executable with its full runtime distribution.
-- `AZUtility-source.zip` — source, lockfile, native runners, tests, workflows and documentation.
-- `SHA256SUMS.txt` — checksums for the downloaded packages and source archive.
-
-Downloaded APK identity, target SDK, architecture, signature and checksums were verified independently of CI. Windows PE architecture, companion files, checksum and unsigned status were verified locally. The exact delivered Windows application remained running during an eight-second hidden startup check; SQLite and MSVC/Flutter runtime libraries were loaded from its distribution. Interactive hardware and permission behavior is not covered by this startup check.
-
-Package SHA-256 values:
-
-```text
-aab568bad79fa27206c05682500c97012a0ab4b81502242f5614a6087bf2a276  AZUtility-v1.0.0-android-arm64-test-signed.apk
-115d31f10da990535889c5b1b96167704668cd83a1a16b36af3451eebf2d70ba  AZUtility-v1.0.0-windows-x64.zip
-```
-
-## Architecture and commits
-
-One Flutter/Dart application, one Android identity (`com.az.utility`), and one Windows executable (`AZUtility.exe`). The application uses Riverpod, a go_router state-preserving shell, Material 3 with the navy/cyan design system, fl_chart, and one Drift/SQLite database. Explicit SQL migrations avoid a generated-source dependency. Native access is isolated behind a platform channel, implemented in Kotlin and C++/Win32. File and network operations have dedicated services, capability models and cancellation tokens.
-
-The commits implement the shell and three modules, native runners, local persistence and exports, safety tests, adaptive-layout corrections, locked dependencies, and build/package workflows. The local Flutter toolchain is 3.47.9 / Dart 3.13.7. Android uses AGP 8.13.2, Gradle 8.14.3 and Kotlin 2.3.20, with Java 21 on CI.
+The implementation expanded the original foundation with provider-native Android storage, MediaStore, Windows WLAN/microphone/recycle/share/drop adapters, recursive folder operations, safe encrypted filesystem ZIPs, live Android sensors, detailed device cards, monitoring persistence, report comparisons and retention. See [scope mapping](ACCEPTANCE.md) and [capabilities](PLATFORM_CAPABILITIES.md).
 
 ## Implemented features
 
 ### Network Analyzer
 
-- User-triggered DNS lookup, TCP connection timing to the first resolved address, and HTTPS header timing.
-- Configurable diagnostic endpoint, repeated samples, cancellation, timeout/error evidence, bounded latency history and selectable chart ranges.
-- Defined successive-sample jitter and connection failure percentage, including DNS/TCP failures. No TCP measurement is called ICMP ping or packet-level loss.
-- Configurable HTTPS download/POST upload tests with byte limits, live progress, elapsed time and payload rates. No user file is uploaded. No endpoint is invented for unrestricted speed testing.
-- Explicit private IPv4 interface selection for bounded /24 TCP 443 discovery, progress, stop and stored findings.
-- Evidence-based troubleshooting observations and persistent session history, filtering and report exports.
+Real DNS, first-address TCP connection timing and HTTPS header timing; timeouts, cancellation and categorized error evidence. Bounded latency chart/sample counts, successive-sample jitter and explicit diagnostic-failure estimates. Configured authorized HTTPS download/POST upload endpoints, byte caps, live progress, Mbps and MB/s, history. Wi-Fi details and optional location permission for private Android identifiers; Windows WLAN metrics. Explicit private-interface /24 TCP 443 discovery with bounded concurrency, stop and hostname lookup. Evidence-based troubleshooting, date filtering, two-record numeric/chart comparison and JSON/CSV/PDF exports. No packet-level loss or ISP fault claim is invented.
 
 ### Smart File Manager
 
-- User-selected accessible folders, parent navigation, list/grid modes, search, category filters, name/size/date sorting, file metadata and bounded image thumbnails.
-- Regular-file open/copy/move, file/folder rename, create folder, multi-selection, details and confirmed permanent file deletion. Destinations are validated and existing targets are rejected.
-- Read-only asynchronous recursive scans, exclusions, progress, cancellation, inaccessible-entry counts and a persisted latest index. Coverage is explicitly a selected accessible subset, not an entire volume.
-- Duplicate detection by size then full streaming SHA-256 in cancelable isolates, with metadata rechecks and a review interface. No automatic deletion.
-- Virtualized large-file lists, category totals, clickable donut charts and an area-proportional treemap.
-- ZIP creation, inspection and extraction. Workers are cancelable; extraction rejects traversal and links, requires a fresh destination, and enforces 10,000-entry / 512 MiB declared and actual-output bounds.
-- Separate Android SAF browser with persisted URI grants and document-provider browse/open/rename/create/delete actions.
+Real selected-path and Android SAF/MediaStore browsing; list/grid/search/sort/breadcrumbs, thumbnails and metadata, multiple selection, native open/share, folder creation/rename, recursive copy/move with conflicts and source checks. Windows Recycle Bin and Android supported-media system trash; confirmed permanent provider/path deletion where recovery is unavailable. Windows file-drop review, clipboard shortcuts and native menus.
+
+Read-only recursive worker scans with progress/cancellation/exclusions/errors/coverage, persistent cache and incremental immediate-folder path updates. Full SHA-256 duplicates with metadata checks and reviewed selection. Virtualized large-file filters/preview/removal. Clickable category donut/bars/treemap and direct-folder size rankings. ZIP creation from files/folders including empty folders, inspect/extract, progress/cancel, staging cleanup, no overwrite, traversal/link rejection and 10,000-entry / 512 MiB bounds. Passwords are ephemeral and supported for filesystem ZIPs; provider ZIP is unencrypted streaming JDK ZIP.
+
+Android DocumentEngine streams real granted provider URIs for recursive scan/hash/duplicate/copy/move/ZIP. Unknown provider sizes remain unavailable. MediaStore supports partial photo grants and system trash. Native thumbnails use a bounded worker pool/cache. No All files/root/private-app storage bypass.
 
 ### Device Doctor
 
-- Genuine platform inventory, CPU capability distinctions, system RAM, storage volume capacity/availability and battery fields where provided.
-- Windows CPU uses GetSystemTimes deltas. Android system-wide CPU is explicitly unsupported; app-process CPU is labeled separately.
-- Bounded percentage history charts, configurable monitoring interval and foreground-only monitoring.
-- Screen-color and touch/mouse tests, Android speaker/microphone/vibration and sensor inventory, Windows notification-sound test, and connectivity tests.
-- Cancelable bounded CPU, memory and temporary-file storage benchmarks, recorded results, inventory snapshots and evidence-based usage observations. No arbitrary health score or invented battery wear percentage.
+Four real capability-aware CPU/RAM/storage/battery cards with details and bounded history; hardware, adapter and supported sensor inventory. Windows system CPU; separately labeled Android process CPU. Configurable foreground refresh, optional persisted monitoring, lifecycle cancellation. Saved manual screen/touch assessments, speaker/microphone tests, Android vibration and live supported sensor readings. Windows microphone records in memory for three seconds and plays back locally.
+
+Conservative configurable CPU, memory and temporary-storage benchmarks with validation, progress/cancel, detailed results and local comparison. Health findings use transparent current-usage evidence with Good / Attention / Warning / Not assessed categories. No arbitrary score or invented wear percentage.
 
 ### Shared application
 
-- Adaptive mobile bottom navigation and expandable Windows sidebar, keyboard navigation shortcuts and a native minimum window size.
-- Original AZ icon, dark/light themes, accent choice, reduced motion, compact density and persistent preferences.
-- SQLite schema migration from v1 to v2, history bounded to 500 records per category, independent history clearing, cached file index and local-storage error states.
-- JSON, CSV and PDF exports. PDF summarizes long network sample arrays; JSON/CSV retain individual measurements. Android exports use a save-document picker.
-- CI for analysis/tests/builds, Android signing-secret support, Windows runtime packaging and checksums; a version-validated tag-release workflow.
+Responsive navy/cyan design with original AZ icon, mobile navigation/desktop sidebar, theme/accent/density/reduced motion, operational dashboard, skeletons/error/empty states. One local database stores preferences, bounded categorized history, index and opt-in monitoring. Configurable age retention and 500-record/category cap; monitoring at most once/minute, 10,000 rows, 180-point live charts. Independent clearing and reset preferences. Lazy history loading, filtering, comparison and local PDF/JSON/CSV exports. OFL Noto fonts are bundled for common Latin/Arabic/Sinhala/Tamil/Devanagari/CJK PDF text.
 
 ## Quality evidence
 
-- Latest local `flutter analyze`: **no issues found**.
-- Latest local automated suite: **21 passed, 0 failed**.
-- Coverage includes startup/navigation, saved appearance, DNS failure and timeout, offline socket failure, endpoint validation, network calculations, transfer limits, cancellation, classification, real-file hashing/duplicates, file conflicts/rename, malicious ZIP traversal, ZIP round trip, benchmark bounds, SQLite creation/upgrades and report exports.
-- Dashboard layout tests passed at 1360×900 and 390×844. Local rendered previews were visually inspected with real fonts. These are widget-test renders with native capabilities unavailable, not physical-device screenshots.
-- Hosted Linux and Windows each passed static analysis and all 21 automated tests, then built and packaged the application successfully. APK validation confirms only `arm64-v8a`, package `com.az.utility`, version `1.0.0`, minimum SDK 24 and target SDK 36. APK Signature Scheme v2 verification passed; the signer is `CN=Android Debug, O=Android, C=US`.
-- Integration test source is provided, but has not been executed against a physical Android device or a packaged Windows application.
+Local automated suite: **31 passed, 0 failed**. Covers startup/navigation/appearance persistence, offline/DNS/timeout errors, measurement math, endpoint/transfer bounds, classification/hash/duplicates, recursive copy/move/conflicts/containment, incremental index, encrypted ZIP wrong password/roundtrip/folder/empty directory/traversal/cancel cleanup, benchmark bounds, migrations/retention/reset/monitoring, CSV/JSON/multilingual PDF and 390/1360 layouts. Static analysis: **no issues found**. Hosted Linux and Windows both passed all 31 tests and static analysis.
 
-No device performance profiling, sustained battery measurement, physical audio-quality test or Android permission behavior is claimed as verified. The PDF library's built-in font has limited Unicode coverage; JSON preserves original text.
+Native Windows integration launches the real debug runner, reads native RAM/architecture and navigates to Device Doctor. Android 15 emulator integration exercises native snapshots and a debug-only DocumentsProvider fixture: recursive scan, SHA-256 duplicates, copy conflict, ZIP roundtrip, traversal rejection and staging cleanup. The fixture provider is absent from release manifests.
 
-## Build and signing constraints
+## Build evidence
 
-Local Flutter/Dart were installed into the workspace and used for testing. `flutter doctor -v` confirms that this machine lacks Android command-line tools and Visual Studio C++ build tools. GitHub Actions supplies the native toolchains.
+Verified code commit: `7cf1415b6cb578afd13cd35b700bebda9f3ac99a`. [CI run 41392198849](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41392198849) succeeded for both Android and Windows. Windows native startup/snapshot/navigation integration passed before the release build. Documentation-only commits follow this verified code revision.
 
-Android CI produces a release-mode ARM64 APK. Without `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD` and `ANDROID_KEY_ALIAS`, the APK uses a debug certificate and must be labeled `test-signed`. It is test-installable, not a production-signed release.
+Downloaded artifacts were checked against GitHub artifact SHA-256 digests. Independent APK parsing verified package/name/version, only ARM64 libraries, minimum SDK 24, target SDK 36 and absence of the debug fixture provider. APK Signature Scheme v2 verifies with signer `C=US, O=Android, CN=Android Debug`. Windows PE machine is AMD64; all required Flutter/SQLite/MSVC/runtime files are present, and Authenticode reports NotSigned. The downloaded release executable remained running through an eight-second hidden startup check; only that owned smoke-test process was stopped.
 
-Windows packaging keeps the executable, Flutter and plugin/native libraries, assets, ICU data, AOT library and available MSVC redistributable DLLs together. The executable is unsigned. A bare EXE is not a valid distribution.
+| Deliverable | Bytes | SHA-256 |
+|---|---:|---|
+| AZUtility-v1.0.0-android-arm64-test-signed.apk | 38,897,247 | `fd261b13be613276a74fc2ebf3f57a491265b33e0dea0649d990cd4cd09e8fe5` |
+| AZUtility-v1.0.0-windows-x64.zip | 30,353,704 | `d83867abc8d50300b5a1ddc5728d632f4d7031d998195f8bcc48d1d9a3b43895` |
 
-No GitHub release tag has been pushed and no public production release has been published.
+Source, report, scope/capability records, updated widget-render previews and checksums accompany the packages. Previews are widget-test renders with native capabilities unavailable, not physical-device screenshots. Source archive contains the committed source/lockfile/native projects/tests/workflows/assets/licenses; Flutter/SDK/dependency installation remains required to rebuild.
 
-## Installation
+Android 15 emulator integration is still in progress; its result will be recorded before final handoff.
 
-Android: download the ARM64 APK, permit installation from the chosen source, install AZ Utility, and grant a selected folder only when requested. Microphone permission is used only for the recording test. No root, administrator, location or All files permission is requested.
+## Installation and signing
 
-Windows: extract the entire distribution ZIP into a user-writable folder and launch `AZUtility.exe`, keeping all companion files together. Select a readable folder/drive before scanning. Deletions are permanent and require confirmation.
+Android: install the ARM64 APK, allow installation from the chosen source, then open AZ Utility. Grant selected SAF/media/microphone/optional Wi-Fi location access only when using those features. The `test-signed` APK is release-mode signed with an Android Debug certificate, not production-signed. Production requires `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS`.
 
-For local source builds, see the exact commands and prerequisites in the repository README.
+Windows: extract the entire ZIP into a user-writable folder and run `AZUtility.exe`, retaining all DLLs and `data/`. It is unsigned; routine use does not need administrator privileges. Packaging includes Flutter, SQLite/plugin assets, ICU/AOT and MSVC runtime dependencies. A bare EXE is not a valid distribution.
 
-## Outstanding implementation and verification
+No release tag/public production release has been published. The tag workflow is configured. Local Android/Visual Studio build toolchains are absent, so hosted native toolchains produce the packages.
 
-1. Physical Android 15 testing and interactive packaged Windows testing remain required. Production Android signing and optional Windows signing require real keys/certificates. A production release has not been published.
-2. Android MediaStore integration and provider-native recursive scan, hashing, duplicate analysis, ZIP, copy/move/share are not implemented. SAF currently provides browsing and basic document actions; Dart analysis needs readable filesystem paths.
-3. Recursive folder copy/move, native sharing, recycle/trash integration, drag-and-drop, incremental filesystem watching, folder-size rankings and richer duplicate multi-selection remain unfinished. Regular-file actions work; deletion is explicitly permanent.
-4. Wi-Fi SSID/BSSID permission acquisition and a dedicated Wi-Fi screen are unfinished. Android reports available link data and marks private identifiers permission-required. Windows WLAN-specific metrics and LAN hostname resolution are unfinished.
-5. Live sensor streams, Windows microphone recording, persisted continuous monitoring samples, detailed metric subpages and recorded manual screen/touch outcomes remain unfinished. Unsupported hardware capabilities are stated explicitly.
-6. History comparisons, configurable age-based retention, reset-settings controls, full Unicode PDF fonts and some advanced report visualizations remain unfinished. Current retention is a fixed per-category record cap.
+## Remaining external verification and limitations
 
-Continuation priority: test permissions and real file operations on Android 15, exercise the packaged Windows interactions, then extend Android provider-backed file operations and native file safety/UX before broadening advanced diagnostics. Preserve the existing working service boundaries and safety tests.
+Physical Android 15 testing is unavailable: no claim of real sensor accuracy, microphone/speaker quality, vibration, permission UX, provider/device diversity, thermal behavior or sustained battery measurement. Interactive Windows driver/device/provider testing and target-hardware performance profiling remain required. Production Android signing and optional Windows code signing require real credentials; none were fabricated.
+
+Android system-wide CPU is unavailable through the supported public API. Windows sensor/vibration and unsupported battery fields are labeled. Provider encrypted ZIP is unsupported; filesystem ZIP supports passwords. Wi-Fi privacy/driver support varies. TCP-443 LAN discovery can miss devices. Folder rankings are immediate indexed child groups. Symlink checks cannot eliminate a hostile concurrent path-replacement race. PDF complex shaping/glyph coverage remains subject to font/library limits; JSON preserves Unicode. See PLATFORM_CAPABILITIES.md for precise limits.
