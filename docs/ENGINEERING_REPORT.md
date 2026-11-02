@@ -2,6 +2,8 @@
 
 Date: 2026-11-02 (Asia/Colombo).
 
+Master-scope implementation and packaged test delivery are complete within the available environment. Physical-device validation and production signing remain external requirements, detailed below.
+
 ## Repository and architecture
 
 Repository: [Mhd-Azeem/AzUtility](https://github.com/Mhd-Azeem/AzUtility). Branch/default branch: `feature/az-utility`. The initially empty repository was implemented without replacing unrelated work. One Flutter application contains Network Analyzer, Smart File Manager and Device Doctor, one Android identity (`com.az.utility`) and one Windows executable (`AZUtility.exe`).
@@ -38,11 +40,11 @@ Responsive navy/cyan design with original AZ icon, mobile navigation/desktop sid
 
 Local automated suite: **31 passed, 0 failed**. Covers startup/navigation/appearance persistence, offline/DNS/timeout errors, measurement math, endpoint/transfer bounds, classification/hash/duplicates, recursive copy/move/conflicts/containment, incremental index, encrypted ZIP wrong password/roundtrip/folder/empty directory/traversal/cancel cleanup, benchmark bounds, migrations/retention/reset/monitoring, CSV/JSON/multilingual PDF and 390/1360 layouts. Static analysis: **no issues found**. Hosted Linux and Windows both passed all 31 tests and static analysis.
 
-Native Windows integration launches the real debug runner, reads native RAM/architecture and navigates to Device Doctor. Android 15 emulator integration exercises native snapshots and a debug-only DocumentsProvider fixture: recursive scan, SHA-256 duplicates, copy conflict, ZIP roundtrip, traversal rejection and staging cleanup. The fixture provider is absent from release manifests.
+Native Windows integration launches the real debug runner, reads native RAM/architecture and navigates to Device Doctor. Local interface inspection of the downloaded release also verified live system readings, Device Doctor navigation/CPU detail chart and native-picker browsing of three real test files. It did not assess all destructive actions or every hardware test. Android 15 emulator integration exercises native snapshots and a debug-only DocumentsProvider fixture: recursive scan, SHA-256 duplicates, copy conflict, ZIP roundtrip, traversal rejection and staging cleanup. The fixture provider is absent from release manifests. Its debug declaration follows the system-required exported/MANAGE_DOCUMENTS protection contract ([Android framework source](https://android.googlesource.com/platform/frameworks/base/+/HEAD/core/java/android/provider/DocumentsProvider.java)).
 
 ## Build evidence
 
-Verified code commit: `7cf1415b6cb578afd13cd35b700bebda9f3ac99a`. [CI run 41392198849](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41392198849) succeeded for both Android and Windows. Windows native startup/snapshot/navigation integration passed before the release build. Documentation-only commits follow this verified code revision.
+Verified code commit: `7cf1415b6cb578afd13cd35b700bebda9f3ac99a`. [CI run 41392198849](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41392198849) succeeded for both Android and Windows. Windows native startup/snapshot/navigation integration passed before the release build. Later commits refine the debug fixture/test harness and documentation; delivered release runtime source is unchanged. [Latest CI run 41394822788](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41394822788) also passed both platform jobs at `c8453437` including all 31 tests and native Windows integration.
 
 Downloaded artifacts were checked against GitHub artifact SHA-256 digests. Independent APK parsing verified package/name/version, only ARM64 libraries, minimum SDK 24, target SDK 36 and absence of the debug fixture provider. APK Signature Scheme v2 verifies with signer `C=US, O=Android, CN=Android Debug`. Windows PE machine is AMD64; all required Flutter/SQLite/MSVC/runtime files are present, and Authenticode reports NotSigned. The downloaded release executable remained running through an eight-second hidden startup check; only that owned smoke-test process was stopped.
 
@@ -53,11 +55,11 @@ Downloaded artifacts were checked against GitHub artifact SHA-256 digests. Indep
 
 Source, report, scope/capability records, updated widget-render previews and checksums accompany the packages. Previews are widget-test renders with native capabilities unavailable, not physical-device screenshots. Source archive contains the committed source/lockfile/native projects/tests/workflows/assets/licenses; Flutter/SDK/dependency installation remains required to rebuild.
 
-Android 15 emulator integration is still in progress; its result will be recorded before final handoff.
+**Android 15 emulator integration passed** at `c8453437`: [run 41394822781](https://github.com/Mhd-Azeem/AzUtility/actions/runs/41394822781). The real x86_64 Android 15 debug runner completed native startup and the authorized document-provider round trip, including scan/hash/duplicates, copy conflicts, ZIP extraction, traversal rejection and cleanup. This is emulator evidence, not physical ARM64 hardware validation. The ARM64 release package is independently built/validated as above.
 
 ## Installation and signing
 
-Android: install the ARM64 APK, allow installation from the chosen source, then open AZ Utility. Grant selected SAF/media/microphone/optional Wi-Fi location access only when using those features. The `test-signed` APK is release-mode signed with an Android Debug certificate, not production-signed. Production requires `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS`.
+Android: install the ARM64 APK, allow installation from the chosen source, then open AZ Utility. Grant selected SAF/media/microphone/optional Wi-Fi location access only when using those features. The `test-signed` APK is release-mode signed with an Android Debug certificate, not production-signed. Test certificates can differ between hosted runners: Android can reject updates over an earlier test install. Export needed local history before uninstalling an earlier test copy. Production requires `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_PASSWORD`, `ANDROID_KEY_ALIAS`.
 
 Windows: extract the entire ZIP into a user-writable folder and run `AZUtility.exe`, retaining all DLLs and `data/`. It is unsigned; routine use does not need administrator privileges. Packaging includes Flutter, SQLite/plugin assets, ICU/AOT and MSVC runtime dependencies. A bare EXE is not a valid distribution.
 
