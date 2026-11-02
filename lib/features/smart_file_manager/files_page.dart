@@ -466,6 +466,9 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                       ListTile(
                         title: Text(entry.key),
                         trailing: Text(bytes(entry.value)),
+                        subtitle: LinearProgressIndicator(
+                          value: total > 0 ? entry.value / total : 0,
+                        ),
                         onTap: () => showLarge(
                           app.files.index
                               .where((f) => f.category == entry.key)
@@ -586,13 +589,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
                             child: const Text('Move'),
                           ),
                           TextButton(
-                            onPressed:
-                                app.busy ||
-                                    selected.any(
-                                      (path) => Directory(path).existsSync(),
-                                    )
-                                ? null
-                                : zip,
+                            onPressed: app.busy ? null : zip,
                             child: const Text('Create ZIP'),
                           ),
                           TextButton(
@@ -968,6 +965,11 @@ class _FilesPageState extends ConsumerState<FilesPage> {
   Future<void> zip() async {
     final name = await prompt('ZIP filename', initial: 'Archive.zip');
     if (name == null) return;
+    final password = await prompt(
+      'ZIP password (leave empty for unencrypted)',
+      secret: true,
+    );
+    if (password == null) return;
     final paths = selected.toList();
     await operation(
       'Create ZIP',
@@ -978,6 +980,7 @@ class _FilesPageState extends ConsumerState<FilesPage> {
             paths,
             safeChild(current!, name),
             token,
+            password: password.isEmpty ? null : password,
             onProgress: (v) {
               final app = ref.read(controllerProvider);
               app.progress = v;

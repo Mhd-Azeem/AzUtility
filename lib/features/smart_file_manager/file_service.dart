@@ -424,6 +424,7 @@ class FileService {
     String destination,
     Cancellation cancel, {
     void Function(double)? onProgress,
+    String? password,
   }) async {
     if (await File(destination).exists()) {
       throw const FileSystemException('Destination already exists');
@@ -431,6 +432,9 @@ class FileService {
     final names = <String>{};
     for (final file in files) {
       await _noLink(file);
+      if (await Directory(file).exists() && p.isWithin(file, destination)) {
+        throw ArgumentError('ZIP destination must be outside selected folders');
+      }
       if (!names.add(p.basename(file))) {
         throw ArgumentError('Selected files have conflicting names');
       }
@@ -439,7 +443,12 @@ class FileService {
         '$destination.az-part-${DateTime.now().microsecondsSinceEpoch}';
     try {
       await _archiveJob(
-        {'action': 'create', 'files': files, 'destination': temporary},
+        {
+          'action': 'create',
+          'files': files,
+          'destination': temporary,
+          'password': ?password,
+        },
         cancel,
         onProgress,
       );
@@ -500,14 +509,60 @@ class FileService {
     final port = arguments[1] as SendPort;
     try {
       if (job['action'] == 'create') {
-        final encoder = ZipFileEncoder();
+        final paths = job['files'] as List<String>;
+        final entries = <MapEntry<String, String>>[];
+        int bytes = 0;
+        Future<void> collect(String source, String name) async {
+          await FileService()._noLink(source);
+          final stat = await FileStat.stat(source);
+          if (stat.type == FileSystemEntityType.directory) {
+            entries.add(MapEntry(source, '$name/'));
+            await for (final entry in Directory(
+              source,
+            ).list(recursive: true, followLinks: false)) {
+              await FileService()._noLink(entry.path);
+              final relative = p.posix.fromUri(
+                p.toUri(p.relative(entry.path, from: source)),
+              );
+              final child = await entry.stat();
+              entries.add(
+                MapEntry(
+                  entry.path,
+                  '$name/$relative${entry is Directory ? '/' : ''}',
+                ),
+              );
+              if (entry is File) bytes += child.size;
+              if (entries.length > 10000 || bytes > 512 * 1024 * 1024)
+                throw const FileSystemException(
+                  'ZIP creation exceeds 10,000 entries or 512 MiB',
+                );
+            }
+          } else if (stat.type == FileSystemEntityType.file) {
+            entries.add(MapEntry(source, name));
+            bytes += stat.size;
+          } else {
+            throw const FileSystemException('Unsupported archive source');
+          }
+          if (entries.length > 10000 || bytes > 512 * 1024 * 1024)
+            throw const FileSystemException(
+              'ZIP creation exceeds 10,000 entries or 512 MiB',
+            );
+        }
+
+        for (final source in paths) {
+          await collect(source, p.basename(source));
+        }
+        final encoder = ZipFileEncoder(password: job['password'] as String?);
         encoder.create(job['destination'] as String);
         try {
-          final paths = job['files'] as List<String>;
           int done = 0;
-          for (final path in paths) {
-            await encoder.addFile(File(path), p.basename(path));
-            port.send({'progress': ++done / paths.length});
+          for (final entry in entries) {
+            if (entry.value.endsWith('/')) {
+              encoder.addArchiveFile(ArchiveFile.directory(entry.value));
+            } else {
+              await encoder.addFile(File(entry.key), entry.value);
+            }
+            port.send({'progress': ++done / entries.length});
           }
         } finally {
           await encoder.close();

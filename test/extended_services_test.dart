@@ -156,6 +156,41 @@ void main() {
     },
   );
   test(
+    'folder ZIP preserves nested and empty directories with encryption',
+    () async {
+      final temp = await Directory.systemTemp.createTemp('az-folder-zip-');
+      addTearDown(() => temp.delete(recursive: true));
+      final folder = Directory(p.join(temp.path, 'source'));
+      await Directory(p.join(folder.path, 'empty')).create(recursive: true);
+      await File(
+        p.join(folder.path, 'data.txt'),
+      ).writeAsString('protected bytes');
+      final zip = p.join(temp.path, 'folder.zip');
+      final service = FileService();
+      await service.createZip(
+        [folder.path],
+        zip,
+        Cancellation(),
+        password: 'secret',
+      );
+      final target = p.join(temp.path, 'output');
+      await service.extractZip(zip, target, Cancellation(), password: 'secret');
+      expect(
+        await File(p.join(target, 'source', 'data.txt')).readAsString(),
+        'protected bytes',
+      );
+      expect(await Directory(p.join(target, 'source', 'empty')).exists(), true);
+      await expectLater(
+        service.createZip(
+          [folder.path],
+          p.join(folder.path, 'inside.zip'),
+          Cancellation(),
+        ),
+        throwsArgumentError,
+      );
+    },
+  );
+  test(
     'incremental directory updates retain untouched index entries',
     () async {
       final temp = await Directory.systemTemp.createTemp('az-index-update-');
