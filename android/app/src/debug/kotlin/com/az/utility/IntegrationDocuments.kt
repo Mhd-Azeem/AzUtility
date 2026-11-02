@@ -8,7 +8,7 @@ import android.provider.DocumentsContract as D
 import android.provider.DocumentsProvider
 import java.io.File
 
-/** Debug APK only. A private test provider, never part of release artifacts. */
+/** Debug APK only. MANAGE_DOCUMENTS-protected fixture, absent from release artifacts. */
 class IntegrationDocuments : DocumentsProvider() {
   private val root get()=File(context!!.cacheDir,"integration-documents")
   override fun onCreate():Boolean {
